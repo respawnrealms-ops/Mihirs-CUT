@@ -117,6 +117,8 @@ def _data_folder():
 
 
 DATA_DIR, DATA_FROM = _data_folder()
+# FFmpeg reads video inputs and concat lists from other working folders.
+DATA_DIR = DATA_DIR.resolve()
 USERS_DIR = DATA_DIR / "users"          # users/<user id>/{creators,jobs,accounts}
 MODELS_DIR = Path(env("PEAKCUT_MODELS") or DATA_DIR / "models")
 TMP_DIR = DATA_DIR / "tmp"

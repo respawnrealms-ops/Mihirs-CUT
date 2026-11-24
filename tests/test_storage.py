@@ -71,6 +71,15 @@ out = subprocess.run([sys.executable, "-c", "from studio import config, storage\
                      capture_output=True, text=True, env={**env, "PEAKCUT_DATA": str(base / "from-env")}, encoding="utf-8", errors="replace")
 check("a folder set in .env is left to .env", out.stdout.startswith("env |") and ".env" in out.stdout)
 
+# Relative storage paths must remain valid for FFmpeg's concat lists and render work folders.
+code = "from studio import config; print(config.DATA_DIR.is_absolute()); print(config.USERS_DIR.is_absolute()); print(config.DATA_DIR)"
+out = subprocess.run([sys.executable, "-c", code], cwd=base, capture_output=True, text=True,
+                     env={**env, "PEAKCUT_DATA": "./relative-data", "PYTHONPATH": str(config.ROOT)},
+                     encoding="utf-8", errors="replace")
+check("a relative data folder becomes absolute before video paths are built",
+      (out.returncode, out.stdout.splitlines()),
+      (0, ["True", "True", str((base / "relative-data").resolve())]))
+
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil; shutil.rmtree(base, ignore_errors=True)
 sys.exit(1 if fails else 0)

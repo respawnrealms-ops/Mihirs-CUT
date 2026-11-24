@@ -21,7 +21,7 @@ DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "cap
             "trigger_words": "clip that, clip it",
             "autopost": False, "accounts": [], "post_min_score": 75, "post_gap_min": 45, "daily_cap": 6,
             "privacy": "public", "post_footer": "", "rate_per_1k": 0.0, "channels": {},
-            "lang": "en"}    # the language this creator speaks: picks the speech model, for live recordings too
+            "lang": "en", "studio": {}}    # the language this creator speaks: picks the speech model, for live recordings too
 PLATFORMS = ("youtube", "twitch", "kick")
 
 
@@ -79,7 +79,11 @@ def _clean(data: dict) -> dict:
         if k not in data or data[k] is None:
             continue
         v = data[k]
-        if k in NUMERIC:
+        if k == "studio":
+            from . import editor, editor_assets
+            v = editor.clean(v)
+            editor_assets.validate_profile(v)
+        elif k in NUMERIC:
             lo, hi = NUMERIC[k]
             v = max(lo, min(hi, int(float(v))))
         elif k in ("auto_watch", "autopost", "ai_only_on_spike"):

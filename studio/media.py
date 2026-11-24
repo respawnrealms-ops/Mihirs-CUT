@@ -126,6 +126,7 @@ def info(url: str) -> dict:
     with _youtube_guard(url), _ydl({}) as ydl:
         i = ydl.extract_info(url, download=False)
     return {"title": i.get("title") or "", "uploader": i.get("uploader") or i.get("channel") or "",
+            "channel_url": i.get("channel_url") or i.get("uploader_url") or "", "channel_handle": i.get("uploader_id") or "",
             "duration": float(i.get("duration") or 0), "is_live": bool(i.get("is_live")),
             "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video"}
 

@@ -65,6 +65,10 @@ def _next_slot(account_id, gap_min, cap):
 
 
 def enqueue(job, clip, account_ids, now=False) -> list:
+    if job.get("kind") == "long_video":
+        chosen = [accounts.get(aid) for aid in account_ids]
+        if any(a and a["platform"] != "youtube" for a in chosen):
+            raise ValueError("Choose a YouTube account for a long compilation. Shorts posting is unchanged.")
     c = creators.get(job["creator"]) or creators.DEFAULTS
     made = []
     with _lock:
@@ -90,6 +94,8 @@ def enqueue(job, clip, account_ids, now=False) -> list:
 
 def on_clip_ready(job, clip):
     """Called once when a clip first finishes rendering."""
+    if job.get("kind") == "long_video":
+        return  # Long compilations always wait for a person to review and post them.
     c = creators.get(job["creator"])
     if not c or not c["autopost"] or not c["accounts"]:
         return
@@ -120,7 +126,10 @@ def _post(p):
         creator = creators.get(job["creator"]) or dict(creators.DEFAULTS, name="clips")
         title, cap = clip.get("title") or clip.get("hook") or "Clip", _caption(clip, creator)
         if acc["platform"] == "youtube":
-            rid, url = accounts.youtube_upload(acc, path, title, cap + "\n\n#Shorts", clip.get("hashtags", []), creator["privacy"])
+            if job.get("kind") == "long_video":
+                rid, url = accounts.youtube_upload(acc, path, title, cap, clip.get("hashtags", []), creator["privacy"], shorts=False)
+            else:
+                rid, url = accounts.youtube_upload(acc, path, title, cap + "\n\n#Shorts", clip.get("hashtags", []), creator["privacy"])
         elif acc["platform"] == "instagram":
             rid, url = accounts.instagram_upload(acc, path, f"{title}\n\n{cap}", job["id"])
         elif acc["platform"] == "tiktok":

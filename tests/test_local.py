@@ -112,11 +112,19 @@ check("other services list theirs, in order", r.json().get("models"), ["a-model"
 r = post("/api/ai/models", {"provider": "gemini", "key": "wrong-key-000000000000"})
 check("a refused key is explained without repeating it", (r.status_code, "wrong-key-000000000000" in r.text), (502, False))
 put({"provider": "gemini", "models": "g-fast", "key": KEY})
+ai.note_problem("getaddrinfo failed")
+server.usage.forget_all()
+check("the previous connection failure is cached for the dashboard", c.get("/api/status").json()["ai"]["problem"], lambda s: "couldn't reach" in s)
+sync_before_test = c.get("/api/sync").json()["v"]
 r = post("/api/ai/test")
 check("the test asks the saved model and reports back", (r.status_code, r.json().get("model"), r.json().get("ok")), (200, "g-fast", True))
+check("a successful test clears the previous AI failure", ai.problem["text"], "")
+check("a successful test clears the cached warning immediately", c.get("/api/status").json()["ai"]["problem"], "")
+check("a successful test tells the page to refresh", c.get("/api/sync").json()["v"] != sync_before_test)
 put({"provider": "gemini", "models": "g-fast", "key": "wrong-key-000000000000"})
 r = post("/api/ai/test")
 check("a failed test says why, without the key", (r.status_code, "wrong-key-000000000000" in r.text), (502, False))
+check("a failed test updates the banner with its current reason", c.get("/api/status").json()["ai"]["problem"], lambda s: "refused the key" in s and "wrong-key" not in s)
 
 # ---- a clip downloaded on its own is saved under its title, not "clip01.mp4"
 from pathlib import Path  # noqa: E402

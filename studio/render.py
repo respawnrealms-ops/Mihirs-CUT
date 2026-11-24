@@ -18,11 +18,53 @@ STYLES = {
              "strong": "00D7FF", "outline": 7, "pop": 114, "upper": True, "per": 2},
     "clean": {"label": "Clean", "font": "Poppins ExtraBold", "size": 100, "base": "FFFFFF", "active": "6BD7FF",
               "strong": "FFFFFF", "outline": 5, "pop": 106, "upper": False, "per": 4},
+    "karaoke": {"label": "Karaoke", "font": "Poppins ExtraBold", "size": 120, "base": "FFFFFF", "active": "00E6FF",
+                "strong": "FFFFFF", "outline": 5, "pop": 100, "upper": True, "per": 3, "effect": "karaoke"},
+    "neon": {"label": "Neon", "font": "Poppins ExtraBold", "size": 124, "base": "FFFFFF", "active": "FFEE44",
+             "strong": "FF77EE", "outline": 3, "pop": 108, "upper": True, "per": 3, "effect": "glow"},
+    "comic": {"label": "Comic", "font": "Archivo Black", "size": 144, "base": "66EEFF", "active": "FFFFFF",
+              "strong": "FFFFFF", "outline": 8, "pop": 115, "upper": True, "per": 2, "effect": "comic", "edge": "80308B"},
+    "typewriter": {"label": "Typewriter", "font": "Poppins ExtraBold", "size": 112, "base": "FFFFFF", "active": "FFFFFF",
+                   "strong": "FFFFFF", "outline": 5, "pop": 100, "upper": False, "per": 3, "effect": "typewriter"},
+    "boxed": {"label": "Boxed", "font": "Archivo Black", "size": 116, "base": "16120E", "active": "1475D9",
+              "strong": "16120E", "outline": 0, "pop": 100, "upper": True, "per": 3, "effect": "static", "plate": "F0F7FF"},
+    "underline": {"label": "Underline", "font": "Poppins ExtraBold", "size": 112, "base": "FFFFFF", "active": "FFFFFF",
+                  "strong": "FFFFFF", "outline": 5, "pop": 100, "upper": False, "per": 3, "effect": "underline", "accent": "00C8FF"},
+    "one_word": {"label": "One word", "font": "Anton", "size": 184, "base": "FFFFFF", "active": "6BFFAF",
+                 "strong": "FFFFFF", "outline": 8, "pop": 116, "upper": True, "per": 1},
+    "retro": {"label": "Retro", "font": "Archivo Black", "size": 126, "base": "BBE8FF", "active": "76B6FF",
+              "strong": "FFFFFF", "outline": 4, "pop": 100, "upper": True, "per": 3, "effect": "static", "edge": "503044", "shadow": 5},
+    "minimal": {"label": "Minimal", "font": "Poppins ExtraBold", "size": 92, "base": "FFFFFF", "active": "FFFFFF",
+                "strong": "FFFFFF", "outline": 1, "pop": 100, "upper": False, "per": 4, "effect": "static", "plate": "16120E", "plate_alpha": "45"},
+    "marker": {"label": "Marker", "font": "Poppins ExtraBold", "size": 124, "base": "FFFFFF", "active": "16120E",
+               "strong": "FFFFFF", "outline": 5, "pop": 100, "upper": True, "per": 3, "effect": "marker", "accent": "00F0FF"},
+    "gaming": {"label": "Gaming", "font": "Anton", "size": 156, "base": "FFFFFF", "active": "66FF99",
+               "strong": "00E6FF", "outline": 9, "pop": 118, "upper": True, "per": 2},
+    "news": {"label": "News", "font": "Poppins ExtraBold", "size": 108, "base": "FFFFFF", "active": "FFFFFF",
+             "strong": "FFFFFF", "outline": 0, "pop": 100, "upper": True, "per": 4, "effect": "static", "plate": "75220D", "accent": "4949FF"},
 }
 HOOK = {"font": "Poppins ExtraBold", "size": 96, "ink": "14100E", "box": "FFFFFF", "pad_x": 36, "pad_y": 22, "radius": 26,
         "max_w": 900}
 FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf"}
 CAP_MAX_W = 960   # captions never run wider than this, whatever is said
+
+
+def style_previews():
+    """The same fonts, colours and effects for the template picker and the video."""
+    def rgb(bgr):
+        return "#" + bgr[4:6] + bgr[2:4] + bgr[:2]
+    return {name: {"font": st["font"], "base": rgb(st["base"]), "active": rgb(st["active"]),
+                   "edge": rgb(st.get("edge", "000000")), "outline": st["outline"], "upper": st["upper"],
+                   "effect": st.get("effect", "pop"), "plate": rgb(st["plate"]) if st.get("plate") else None,
+                   "accent": rgb(st.get("accent", st["active"])), "per": st["per"]}
+            for name, st in STYLES.items()}
+
+
+def _caption_box(a, b, x0, y0, x1, y1, color, alpha="00"):
+    """A caption-sized plate, marker or underline behind the words."""
+    return (f"Dialogue: 0,{_ts(a)},{_ts(b)},Cap,,0,0,0,,"
+            f"{{\\an7\\pos(0,0)\\bord0\\shad0\\blur0\\c&H{color}&\\alpha&H{alpha}&\\p1}}"
+            f"m {x0:.0f} {y0:.0f} l {x1:.0f} {y0:.0f} {x1:.0f} {y1:.0f} {x0:.0f} {y1:.0f}{{\\p0}}")
 
 
 class _Font:
@@ -81,7 +123,18 @@ def install_fonts():
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
            "left": "Fill the screen, keep the left side", "right": "Fill the screen, keep the right side",
            "fit": "Full frame on black", "split": "Split screen: left half on top, right half below (two people)",
-           "gameplay": "Gameplay fills the screen, facecam in the corner"}
+           "gameplay": "Gameplay fills the screen, facecam in the corner",
+           "facecam_top": "Facecam top half, gameplay bottom half (50/50)",
+           "canvas_white": "White canvas: title above, video centred, captions below",
+           "canvas_cream": "Cream canvas: title above, video centred, captions below",
+           "canvas_black": "Black canvas: title above, video centred, captions below"}
+from .editor import LAYOUTS as STUDIO_LAYOUTS
+LAYOUTS.update(STUDIO_LAYOUTS)
+CANVASES = {"canvas_white": {"color": "FFFFFF", "ink": "181818", "light": True},
+            "canvas_cream": {"color": "FFF3E5", "ink": "181818", "light": True},
+            "canvas_black": {"color": "111111", "ink": "FFFFFF", "light": False}}
+CANVAS_MAX_W, CANVAS_MAX_H = W - 120, H // 2
+FACE_LAYOUTS = ("gameplay", "facecam_top")
 _FILLS = ("crop", "left", "right", "gameplay")      # layouts where the picture covers the whole frame
 
 
@@ -114,10 +167,15 @@ def _groups(words, per):
 
 def geometry(src_w, src_h, layout):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
-    if src_h >= src_w and layout != "crop":
+    if src_h >= src_w and layout != "crop" and layout not in FACE_LAYOUTS and layout not in CANVASES:
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
     if layout not in LAYOUTS:
         layout = "blur"
+    if layout in CANVASES:
+        scale = min(CANVAS_MAX_W / src_w, CANVAS_MAX_H / src_h)
+        fg_h = max(2, int(src_h * scale / 2) * 2)
+        top = (H - fg_h) // 2
+        return layout, fg_h, max(230, top - 170), min(H - 220, top + fg_h + 180)
     if layout in ("blur", "fit"):
         fg_h = min(H, int(round(W * src_h / src_w / 2)) * 2)
     elif layout == "zoom":
@@ -125,6 +183,8 @@ def geometry(src_w, src_h, layout):
     else:
         fg_h = H
     top = (H - fg_h) // 2
+    if layout == "facecam_top":
+        return layout, H, H // 2 + 110, H - 240
     if layout in _FILLS:
         return layout, fg_h, 300, 1380
     if layout == "split":
@@ -132,7 +192,7 @@ def geometry(src_w, src_h, layout):
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
-def _hook_events(hook, dur, y):
+def _hook_events(hook, dur, y, canvas=None):
     """The heading: dark text in a white rounded box that fits it, on one line or two balanced ones."""
     f, size = _Font.get(HOOK["font"]), HOOK["size"]
     words = hook.split()
@@ -156,15 +216,24 @@ def _hook_events(hook, dur, y):
            f"l {n(x0 + r)} {n(y1)} b {n(x0)} {n(y1)} {n(x0)} {n(y1)} {n(x0)} {n(y1 - r)} "
            f"l {n(x0)} {n(y0 + r)} b {n(x0)} {n(y0)} {n(x0)} {n(y0)} {n(x0 + r)} {n(y0)}")
     span = f"{_ts(0)},{_ts(dur)}"
-    ev = [f"Dialogue: 3,{span},Hook,,0,0,0,,{{\\an7\\pos(0,0)\\fad(160,0)\\c&H{HOOK['box']}&\\p1}}{box}{{\\p0}}"]
+    ev = [] if canvas else [f"Dialogue: 3,{span},Hook,,0,0,0,,{{\\an7\\pos(0,0)\\fad(160,0)\\c&H{HOOK['box']}&\\p1}}{box}{{\\p0}}"]
     for i, line in enumerate(lines):
         cy = y - line_h * (len(lines) - 1) / 2 + i * line_h - f.cap_shift(size)
-        ev.append(f"Dialogue: 4,{span},Hook,,0,0,0,,{{\\an5\\pos({W // 2},{cy:.0f})\\fad(160,0)\\fs{size}}}{line}")
+        ink = f"\\c&H{canvas['ink']}&" if canvas else ""
+        ev.append(f"Dialogue: 4,{span},Hook,,0,0,0,,{{\\an5\\pos({W // 2},{cy:.0f})\\fad(160,0)\\fs{size}{ink}}}{line}")
     return ev
 
 
-def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
-    st = STYLES.get(style_name, STYLES["bounce"])
+def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, canvas=None, frame=None, style_override=None) -> str:
+    W, H = frame or (config.OUT_W, config.OUT_H)
+    st = style_override or STYLES.get(style_name, STYLES["bounce"])
+    if canvas and canvas["light"] and not st.get("plate"):
+        # White words become dark on a light canvas; coloured accents and the chosen effect stay intact.
+        st = dict(st)
+        for color in ("base", "active", "strong"):
+            if st[color] == "FFFFFF":
+                st[color] = canvas["ink"]
+        st["outline"] = min(st["outline"], 2)
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
     head = f"""[Script Info]
@@ -176,14 +245,14 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{st['font']},{st['size']},&H00{st['base']},&H00{st['base']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,{st['outline']},0,5,0,0,0,1
+Style: Cap,{st['font']},{st['size']},&H00{st['base']},&H00{st['base']},&H00{st.get('edge', '000000')},&H00{st.get('edge', '000000')},0,0,0,0,100,100,0,0,1,{st['outline']},{st.get('shadow', 0)},5,0,0,0,1
 Style: Hook,{HOOK['font']},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
-    ev = _hook_events(_clean(hook), dur, hook_y)
+    ev = _hook_events(_clean(hook), dur, hook_y, canvas)
     f = _Font.get(st["font"])
     inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
@@ -204,6 +273,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # they are not placed one by one. The line is drawn whole and centred, in a font the system has for it.
             line = " ".join(texts)
             fs = max(44, min(int(st["size"] * 0.7), int(1500 / max(1, len(line)) * 1.6)))
+            if st.get("plate"):
+                ev.append(_caption_box(g_start, g_end, 60, cap_y - fs * 0.7, W - 60, cap_y + fs * 0.7,
+                                       st["plate"], st.get("plate_alpha", "00")))
             ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(g_end)},Cap,,60,60,0,,{{\\an5\\pos({W // 2},{cap_y:.0f})\\q0\\fs{fs}}}{line}")
             continue
         size = st["size"]
@@ -215,6 +287,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             total = sum(f.width(t, size) for t in texts) + gap * (len(texts) - 1)
         cy = cap_y - f.cap_shift(size)
         x = (W - total) / 2
+        effect = st.get("effect", "pop")
+        cap_h = f.cap / f.upm * f.em(size)
+        top, bottom = cap_y - cap_h / 2 - 18, cap_y + cap_h / 2 + 22
+        if st.get("plate"):
+            ev.append(_caption_box(g_start, g_end, x - 18, top, x + total + 18, bottom,
+                                   st["plate"], st.get("plate_alpha", "00")))
+            if style_name == "news":
+                ev.append(_caption_box(g_start, g_end, x - 18, top, x + total + 18, top + 8, st["accent"]))
         p = st["pop"]
         for i, (w, t) in enumerate(zip(g, texts)):
             wd = f.width(t, size)
@@ -224,10 +304,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             a = max(g_start, w["s"] - start)
             b = (g[i + 1]["s"] - start) if i + 1 < len(g) else g_end
             base = st["strong"] if _key(w["w"]) in strong else st["base"]
+            if effect == "typewriter":
+                # Each new letter keeps its position; completed words stay until the phrase ends.
+                reveal = min(max(0.02, w["e"] - w["s"]), max(0.02, b - a))
+                left = x - gap - wd
+                anchor = f"\\an4\\pos({left:.0f},{cy:.0f})\\fs{size}\\c&H{base}&"
+                for count in range(1, len(t) + 1):
+                    ta = a + reveal * (count - 1) / len(t)
+                    tb = a + reveal * count / len(t) if count < len(t) else g_end
+                    if tb - ta >= 0.01:
+                        ev.append(f"Dialogue: 1,{_ts(ta)},{_ts(tb)},Cap,,0,0,0,,{{{anchor}}}{t[:count]}")
+                continue
+            if effect in ("static", "underline", "marker", "karaoke"):
+                if a - g_start >= 0.02:
+                    ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(a)},Cap,,0,0,0,,{{{pos}\\c&H{base}&}}{t}")
+                if b - a >= 0.02:
+                    active = f"{pos}\\c&H{st['active']}&"
+                    left = x - gap - wd
+                    if effect == "underline":
+                        ev.append(_caption_box(a, b, left, bottom - 9, left + wd, bottom - 2, st["accent"]))
+                    elif effect == "marker":
+                        ev.append(_caption_box(a, b, left - 9, top + 5, left + wd + 9, bottom - 5, st["accent"]))
+                        active += "\\bord0"
+                    elif effect == "karaoke":
+                        fill = max(1, round(min(b - a, max(0.02, w["e"] - w["s"])) * 100))
+                        active += f"\\2c&H{base}&\\kf{fill}"
+                    ev.append(f"Dialogue: 2,{_ts(a)},{_ts(b)},Cap,,0,0,0,,{{{active}}}{t}")
+                if g_end - b >= 0.02:
+                    ev.append(f"Dialogue: 1,{_ts(b)},{_ts(g_end)},Cap,,0,0,0,,{{{pos}\\c&H{base}&}}{t}")
+                continue
             if a - g_start >= 0.02:                                                   # waiting to be said
                 ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(a)},Cap,,0,0,0,,{{{pos}\\c&H{base}&}}{t}")
             if b - a >= 0.02:                                                         # being said: colour and a quick pop, in front
-                ev.append(f"Dialogue: 2,{_ts(a)},{_ts(b)},Cap,,0,0,0,,{{{pos}\\c&H{st['active']}&\\fscx94\\fscy94"
+                if effect == "glow":
+                    ev.append(f"Dialogue: 1,{_ts(a)},{_ts(b)},Cap,,0,0,0,,{{{pos}\\c&H{st['active']}&\\3c&H{st['active']}&\\bord12\\blur9\\alpha&H35&}}{t}")
+                tilt = "\\frz-4\\t(0,150,\\frz0)" if effect == "comic" else ""
+                ev.append(f"Dialogue: 2,{_ts(a)},{_ts(b)},Cap,,0,0,0,,{{{pos}{tilt}\\c&H{st['active']}&\\fscx94\\fscy94"
                           f"\\t(0,90,\\fscx{p}\\fscy{p})\\t(90,200,\\fscx{p - 5}\\fscy{p - 5})}}{t}")
             if g_end - b >= 0.02:                                                     # said
                 ev.append(f"Dialogue: 1,{_ts(b)},{_ts(g_end)},Cap,,0,0,0,,{{{pos}\\c&H{base}&\\fscx{p - 5}\\fscy{p - 5}"
@@ -240,6 +352,24 @@ PIP_MARGIN = 26
 
 
 def _filter(layout, fg_h, facecam=None):
+    if layout in CANVASES:
+        color = CANVASES[layout]["color"]
+        return (f"[0:v]fps={config.OUT_FPS},scale={CANVAS_MAX_W}:{CANVAS_MAX_H}:"
+                f"force_original_aspect_ratio=decrease:force_divisible_by=2,"
+                f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0x{color},setsar=1[v0];")
+    if layout == "facecam_top" and facecam:
+        fx, fy, fw, fh = (int(v) for v in facecam)
+        if fw > 8 and fh > 8:
+            half = H // 2
+            # Keep the whole camera visible, with blurred fill inside its half.
+            return (f"[0:v]fps={config.OUT_FPS},split=2[cam][game];"
+                    f"[cam]crop={fw}:{fh}:{fx}:{fy},split=2[cb][cf];"
+                    f"[cb]scale={W}:{half}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{half},boxblur=20:3,setsar=1[bg];"
+                    f"[cf]scale={W}:{half}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2[top];"
+                    f"[game]scale={W}:{half}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{half},setsar=1[bottom];[top][bottom]vstack=inputs=2[v0];")
     if layout == "gameplay" and facecam:
         # The game fills the screen, and the webcam sits in the top corner of it, so a viewer sees
         # the play and the face at the same time.
@@ -282,17 +412,27 @@ _qsv_ok = None
 RENDER_SECONDS = 600      # one clip's video encode; far beyond normal, so a frozen encoder is stopped, not waited on
 
 
-def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int) -> dict:
+def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int, cancel=None) -> dict:
+    from . import editor, studio_render
+    if clip.get("studio") or clip.get("layout") in editor.LAYOUTS or clip.get("caption_words") is not None:
+        return studio_render.render_clip(src, out_dir, name, clip, words, src_w, src_h, cancel=cancel)
     """Writes <name>.mp4, <name>.jpg and <name>.ass into out_dir. Returns file names."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
+    requested_layout = clip.get("layout", "blur")
+    if requested_layout not in LAYOUTS:
+        requested_layout = layout
+    warning = ""
     face = clip.get("facecam")
+    if layout == "facecam_top" and not (face and len(face) == 4 and face[2] > 8 and face[3] > 8):
+        raise ValueError("No facecam was found for the top half. Choose another layout or use a clip with a visible facecam.")
     if layout == "gameplay" and not (face and len(face) == 4):
-        layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
+        layout = "crop"
+        warning = "No facecam was found in this part of the source video. Your facecam layout is still selected; this render shows gameplay only."
     hook_y = _hook_y(layout, hook_y, face)
     ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
-                    clip.get("highlight_words", []), hook_y, cap_y)
+                    clip.get("highlight_words", []), hook_y, cap_y, canvas=CANVASES.get(layout))
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
@@ -301,7 +441,9 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     try:
         # The title and description are also written into the file itself, for any place that reads them from it.
         meta = {"title": clip.get("title") or "", "description": clip.get("description") or "", "comment": clip.get("description") or ""}
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta)
+        out = _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta)
+        out.update(layout=requested_layout, rendered_layout=layout, layout_warning=warning)
+        return out
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -321,7 +463,8 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
             base += ["-metadata", f"{k}={v}"]
     base += ["-movflags", "+faststart", "-pix_fmt"]
     encoders = []
-    if _qsv_ok is not False:
+    # Keep this multi-panel filter in yuv420p; the QSV/NV12 path can corrupt its background.
+    if _qsv_ok is not False and layout != "facecam_top":
         encoders.append(("qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))
     encoders.append(("x264", ["yuv420p", "-c:v", "libx264", "-crf", "21", "-preset", "veryfast"]))
     err = None

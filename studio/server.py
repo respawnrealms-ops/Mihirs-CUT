@@ -1,4 +1,4 @@
-"""PeakCut web server. Run with:  python -m studio.server
+"""Mihis Cut web server. Run with:  python -m studio.server
 
 Public pages:  /  /login  /signup          The app:  /app  (signed-in users only)
 Everything under /api, /media and /oauth needs a session, except /api/auth/* and /api/public."""
@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import admin as admins
 from . import account, load
 from . import (accounts, ai, alerts, auth, brain, config, creators, ctx, db, jobs, live, media, posting,
-               profiles, render, safe, transcribe, usage)
+               profiles, render, safe, transcribe, usage, editor, editor_assets)
 
 from . import tools as _tools  # noqa: E402
 
@@ -36,7 +36,7 @@ def _quiet(fn):
         print(f"  {e}", flush=True)
 
 
-app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Mihis Cut", docs_url=None, redoc_url=None, openapi_url=None)
 WEB = config.ROOT / "web"
 OPEN = ("/api/auth/", "/pub/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
 PAGES = {"/": "landing.html", "/login": "auth.html", "/signup": "auth.html", "/reset": "reset.html",
@@ -75,7 +75,7 @@ def _startup():
     live.start()
     posting.start()
     from . import updates
-    updates.start()                  # looks for a newer PeakCut every minute, in the background
+    updates.start()                  # looks for a newer Mihis Cut every minute, in the background
 
 
 # ================================================================ the gate: who is asking, and are they allowed
@@ -105,6 +105,10 @@ class Gate:
             piece = method == "PUT" and path.startswith("/api/upload/")
             cap = ((min(config.MAX_UPLOAD_MB, config.UPLOAD_PART_MB) if piece else config.MAX_UPLOAD_MB) + 8) * 1024 * 1024 \
                 if path == "/api/upload" or piece else 256 * 1024
+            if path == "/api/editor/assets" and method == "POST":
+                cap = editor_assets.MAX_BYTES + 1024 * 1024
+            elif path == "/api/editor/subtitles":
+                cap = 512 * 1024
             try:
                 if int(req.headers.get("content-length") or 0) > cap:
                     return await deny(413, f"That file is too big. The limit is {config.MAX_UPLOAD_MB} MB." if path == "/api/upload" else "That request is too large.")
@@ -133,7 +137,7 @@ class Gate:
             # must have been asked for by its real address (a number, "localhost", or the address in settings),
             # so another website cannot reach it through a made-up name that points at this machine.
             if not _own_address(req.headers.get("host", "")):
-                return await deny(403, "Open PeakCut by its own address.")
+                return await deny(403, "Open Mihis Cut by its own address.")
             if path == "/" or path == "/reset" or path.startswith("/auth/"):
                 return await deny(303, "", redirect="/app")
             if path.startswith("/api/auth/") and path != "/api/auth/me":
@@ -250,7 +254,7 @@ def _from_cdn(addr: str) -> bool:
     return any(ip in n for n in _CDN_RANGES)
 
 
-# Private and local addresses: the only places a reverse proxy in front of PeakCut can sit.
+# Private and local addresses: the only places a reverse proxy in front of Mihis Cut can sit.
 _PROXY_CIDRS = ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16",
                 "::1/128", "fc00::/7", "fe80::/10")
 _PROXY_RANGES = [ipaddress.ip_network(r) for r in _PROXY_CIDRS]
@@ -299,7 +303,7 @@ def _ip(request: Request) -> str:
 
 
 def _from_here(req, must_say=False) -> bool:
-    """Did this change come from PeakCut's own page, and not from another website?
+    """Did this change come from Mihis Cut's own page, and not from another website?
 
     The browser's own answer is trusted first: it marks every request "same-origin" or not, and a web page cannot
     fake that mark. Comparing the page's address with the address the request arrived at is only the fallback,
@@ -314,7 +318,7 @@ def _from_here(req, must_say=False) -> bool:
 
 
 def _own_address(host: str) -> bool:
-    """Is this the address PeakCut is really reached by? A number (127.0.0.1, 192.168.1.20), "localhost", or the
+    """Is this the address Mihis Cut is really reached by? A number (127.0.0.1, 192.168.1.20), "localhost", or the
     host in PEAKCUT_PUBLIC_URL."""
     import ipaddress
     name = host.strip().lower()
@@ -398,9 +402,9 @@ def reset_page():
 
 
 LEGAL = {
-    "privacy": ("Privacy Policy", "How PeakCut collects, uses and protects your data, including Google user data, cookies and your privacy rights."),
-    "terms": ("Terms of Service", "The terms for using PeakCut, the AI clipping tool for streams and videos: accounts, availability and liability."),
-    "acceptable-use": ("Acceptable Use Policy", "What you may and may not do with PeakCut, the AI stream clipping tool."),
+    "privacy": ("Privacy Policy", "How Mihis Cut collects, uses and protects your data, including Google user data, cookies and your privacy rights."),
+    "terms": ("Terms of Service", "The terms for using Mihis Cut, the AI clipping tool for streams and videos: accounts, availability and liability."),
+    "acceptable-use": ("Acceptable Use Policy", "What you may and may not do with Mihis Cut, the AI stream clipping tool."),
 }
 
 
@@ -415,9 +419,9 @@ def legal_page(request: Request):
     contact = config.CONTACT_EMAIL
     who = (f'<a href="mailto:{_h.escape(contact)}">{_h.escape(contact)}</a>' if contact
            else "the contact details on our website")
-    name = _h.escape(config.LEGAL_NAME or "PeakCut")
+    name = _h.escape(config.LEGAL_NAME or "Mihis Cut")
     law = (f"the laws of {_h.escape(config.LEGAL_COUNTRY)}" if config.LEGAL_COUNTRY
-           else "the laws of the country where PeakCut's operator is established")
+           else "the laws of the country where Mihis Cut's operator is established")
     out = (_LEGAL_HTML or (WEB / "legal.html").read_text(encoding="utf-8"))
     for k, v in {"{{CONTACT}}": who, "{{PAGE}}": page, "{{PAGE_PATH}}": page, "{{SITE}}": _h.escape(config.PUBLIC_URL),
                  "{{NAME}}": name, "{{LAW}}": law, "{{TITLE}}": title, "{{DESC}}": desc}.items():
@@ -611,7 +615,8 @@ def status(request: Request):
     return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
             "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
-            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS, "speech": _speech_brief()}
+            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "style_previews": render.style_previews(),
+            "layouts": render.LAYOUTS, "studio": editor.catalog(), "brand": "Mihis Cut", "speech": _speech_brief()}
 
 
 def _speech_brief() -> dict:
@@ -723,6 +728,27 @@ def list_jobs():
 @app.get("/api/jobs/{jid}")
 def get_job(jid: str):
     return jobs.public(_job_or_404(jid))
+
+
+@app.post("/api/jobs/{jid}/compilation/stop")
+def stop_compilation(jid: str):
+    job = _job_or_404(jid)
+    if job.get("kind") != "long_video" or job.get("status") not in ("queued", "running"):
+        raise HTTPException(409, "No long compilation is running here.")
+    job.update(cancel=True, status="error", stage="Compilation stopped by you", error="Stopped by you")
+    jobs.save(job)
+    return jobs.public(job)
+
+
+@app.post("/api/jobs/{jid}/retry")
+def retry_compilation(jid: str):
+    _job_or_404(jid)
+    _need_verified()
+    _throttle("retry-compilation:"+ctx.uid(),10,600,"Wait a moment before retrying this compilation.")
+    try:
+        return jobs.public(jobs.retry_compilation(jid))
+    except ValueError as e:
+        raise HTTPException(409,str(e)) from None
 
 
 @app.get("/api/preview")
@@ -1013,6 +1039,130 @@ def _clip_or_404(jid: str, cid: str):
     return job, clip
 
 
+@app.get("/editor.js")
+@app.get("/editor.css")
+def editor_static(request: Request):
+    return FileResponse(WEB / request.url.path.lstrip("/"), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/editor/assets")
+def editor_library():
+    return editor_assets.listing()
+
+
+@app.post("/api/editor/assets")
+async def editor_upload(file: UploadFile = File(...)):
+    import tempfile
+    _need_verified()
+    _quota()
+    _throttle("editor-upload:" + ctx.uid(), 30, 600, "Wait a moment before uploading more files.")
+    # A short temporary path also keeps Windows' media tools happy.
+    with tempfile.TemporaryDirectory(prefix="mcup") as temp:
+        target = Path(temp) / ("asset" + Path(file.filename or "").suffix.lower())
+        size = 0
+        with target.open("wb") as out:
+            while data := await file.read(1024*1024):
+                size += len(data)
+                if size > editor_assets.MAX_BYTES:
+                    raise HTTPException(413, "Studio media can be up to 100 MB per file.")
+                out.write(data)
+        try:
+            return await run_in_threadpool(editor_assets.inspect, target, file.filename or "asset")
+        except (ValueError, OSError, RuntimeError):
+            raise HTTPException(400, "This media file could not be read. Use a supported image, audio file, or video.") from None
+
+
+@app.get("/api/editor/assets/{aid}")
+def editor_asset(aid: str):
+    try:
+        row, path = editor_assets.get(aid)
+    except ValueError:
+        raise HTTPException(404, "No such media") from None
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/api/jobs/{jid}/clips/{cid}/source")
+def editor_source(jid: str, cid: str):
+    job, clip = _clip_or_404(jid, cid)
+    path = clip.get("src") or job.get("source_path")
+    if not path or not Path(path).is_file():
+        raise HTTPException(404, "The source is no longer saved. Re-make this clip once to restore its saved piece, then reopen the framing controls.")
+    return FileResponse(path, headers={"Cache-Control": "private, no-cache"})
+
+
+@app.get("/api/jobs/{jid}/clips/{cid}/words")
+def editor_words(jid: str, cid: str):
+    job, clip = _clip_or_404(jid, cid)
+    words = clip.get("caption_words")
+    if words is None:
+        words = clip.get("fixed_words")
+    if words is None:
+        try:
+            words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            words = []
+    return {"offset": clip.get("src_offset", 0), "start": clip["start"], "end": clip["end"],
+            "words": [w for w in words if clip["start"] <= w["s"] < clip["end"]]}
+
+
+@app.post("/api/jobs/{jid}/source-profile")
+def video_source_profile(jid: str):
+    from . import source_profile
+    job = _job_or_404(jid)
+    return source_profile.resolve(job)
+
+
+@app.post("/api/editor/subtitles")
+def editor_import(body: dict = Body(...)):
+    try:
+        offset = editor.number(body.get("offset", 0), 0, 1000000)
+        return {"words": editor.import_subtitles(str(body.get("text", "")), offset),
+                "note": "Word times are estimated within each imported subtitle line. Review the timing."}
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(400, "Could not read these SRT or ASS captions. Check the times and file format.") from None
+
+
+_EDITOR_PREVIEW = threading.BoundedSemaphore(1)
+
+
+@app.post("/api/jobs/{jid}/clips/{cid}/preview")
+async def editor_preview(jid: str, cid: str, body: dict = Body(...)):
+    import uuid
+    job, clip = _clip_or_404(jid, cid)
+    _need_verified()
+    _throttle("editor-preview:" + ctx.uid(), 10, 600, "Wait a moment before making another preview.")
+    path = clip.get("src") or job.get("source_path")
+    if not path or not Path(path).is_file():
+        raise HTTPException(409, "The source is not saved. Re-make the clip once before previewing.")
+    if not _EDITOR_PREVIEW.acquire(blocking=False):
+        raise HTTPException(409, "Another studio preview is rendering. Try again when it finishes.")
+    try:
+        local = jobs.edited_clip(clip, body)
+        if (local.get("studio") or {}).get("template", "none") != "none":
+            from . import source_profile
+            local["studio"] = await run_in_threadpool(source_profile.apply, job, local)
+        off = clip.get("src_offset", 0)
+        words = local.get("caption_words")
+        if words is None:
+            words = editor_words(jid, cid)["words"]
+        opts = {**local.get("studio", {}), "resolution": "720", "fps": "24", "encoder": "cpu", "outro": 0}
+        # A preview is the first three seconds of the kept output, including a trimmed first keep range.
+        ranges = editor.keep_ranges(editor.settings(local), local["end"]-local["start"])
+        first = ranges[0][0]
+        local.update(start=local["start"]+first, end=min(local["end"], local["start"]+first+3), studio={**opts,"cuts":[]})
+        local.update(start=local["start"]-off, end=local["end"]-off)
+        shifted = [dict(w,s=w["s"]-off,e=w["e"]-off) for w in words]
+        name = "preview-" + cid + "-" + uuid.uuid4().hex[:10]
+        result = await run_in_threadpool(render.render_clip, Path(path), Path(job["dir"])/"clips", name, local, shifted, job["width"], job["height"])
+        return {"url": f"/media/{jid}/{result['file']}", "note": "Three-second draft preview. It is never added to the posting queue."}
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(400, "Check the studio settings and clip times.") from None
+    except RuntimeError:
+        raise HTTPException(400, "This preview could not be rendered. Check its media and framing settings.") from None
+    finally:
+        _EDITOR_PREVIEW.release()
+
+
 @app.put("/api/jobs/{jid}/clips/{cid}/text")
 def clip_text(jid: str, cid: str, body: dict = Body(...)):
     """Save a clip's title, description and hashtags. The video is not made again."""
@@ -1158,7 +1308,7 @@ def email_preview(request: Request, kind: str = "verify"):
     from . import mailer
     _admin(request)
     if kind == "reset":
-        page = mailer.preview("Reset your password", "Someone asked to reset the password for this PeakCut account. If that was you, choose a new one below.",
+        page = mailer.preview("Reset your password", "Someone asked to reset the password for this Mihis Cut account. If that was you, choose a new one below.",
                               "Choose a new password", config.PUBLIC_URL + "/reset?t=example",
                               "The link works for one hour. If you didn't ask for this, ignore this email and your password stays the same.")
     else:
@@ -1173,9 +1323,9 @@ def test_email(request: Request):
     me_ = _admin(request)
     if not mailer.ready():
         raise HTTPException(400, "No email service is set up yet. Add the PEAKCUT_SMTP settings to .env first.")
-    mailer.send(me_.email, "PeakCut test email", "Your emails are working",
-                "This is a test from your PeakCut server. Account emails like this one will now reach people.",
-                "Open PeakCut", config.PUBLIC_URL + "/app", "You can ignore this message.")
+    mailer.send(me_.email, "Mihis Cut test email", "Your emails are working",
+                "This is a test from your Mihis Cut server. Account emails like this one will now reach people.",
+                "Open Mihis Cut", config.PUBLIC_URL + "/app", "You can ignore this message.")
     return {"sent_to": me_.email}
 
 
@@ -1398,11 +1548,19 @@ def ai_test(request: Request):
     _admin(request)
     _throttle("aitest:" + ctx.uid(), 20, 600)
     try:
-        return ai.test()
+        out = ai.test()
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        ai.note_problem(e)
+        usage.forget_all()
+        ctx.bump()
         raise HTTPException(502, ai.explain(e) or "The AI did not answer: " + _ai_error(e))
+    # A working connection test is recovery too, even if no new clip is being made.
+    ai.clear_problem()
+    usage.forget_all()
+    ctx.bump()
+    return out
 
 
 # ---------------------------------------------------------------- speech models, one per spoken language
@@ -1410,7 +1568,7 @@ def ai_test(request: Request):
 def _speech_lang(lang: str) -> str:
     from . import fetch_model
     if not fetch_model.known(lang):
-        raise HTTPException(400, "PeakCut has no speech model for that language.")
+        raise HTTPException(400, "Mihis Cut has no speech model for that language.")
     return lang
 
 
@@ -1529,9 +1687,9 @@ def public_clip(token: str):
     return FileResponse(f, media_type="video/mp4", headers={"Cache-Control": "private, no-store"})
 
 
-# ---------------------------------------------------------------- where PeakCut keeps everything (Settings, Storage)
+# ---------------------------------------------------------------- where Mihis Cut keeps everything (Settings, Storage)
 def _on_this_computer(request: Request) -> bool:
-    """Is the person sitting at the computer PeakCut runs on? Only then can a folder window be opened for them."""
+    """Is the person sitting at the computer Mihis Cut runs on? Only then can a folder window be opened for them."""
     host = request.client.host if request.client else ""
     return host in ("127.0.0.1", "::1", "localhost") and not config.env("PEAKCUT_TRUST_PROXY")
 
@@ -1548,7 +1706,7 @@ def storage_open(request: Request):
     from . import storage
     _admin(request)
     if not _on_this_computer(request):
-        raise HTTPException(400, "The folder can only be opened on the computer PeakCut runs on.")
+        raise HTTPException(400, "The folder can only be opened on the computer Mihis Cut runs on.")
     try:
         storage.open_folder()
     except OSError as e:
@@ -1561,7 +1719,7 @@ def storage_pick(request: Request):
     from . import storage
     _admin(request)
     if not _on_this_computer(request):
-        raise HTTPException(400, "Type the folder's path instead: a folder window can only be shown on the computer PeakCut runs on.")
+        raise HTTPException(400, "Type the folder's path instead: a folder window can only be shown on the computer Mihis Cut runs on.")
     return {"path": storage.pick_folder()}
 
 
@@ -1656,7 +1814,7 @@ def test_alert():
         auth_problem = str(e)
     if auth_problem:
         raise HTTPException(429, auth_problem)
-    problems = alerts.send("PeakCut: test message. Alerts are working.")
+    problems = alerts.send("Mihis Cut: test message. Alerts are working.")
     if problems:
         raise HTTPException(400, "; ".join(problems))
     return {"ok": True}
@@ -1714,9 +1872,9 @@ def admin_delete_user(request: Request, uid: str, body: dict = Body(...)):
 
 
 def main():
-    print(f"\n  PeakCut is running:  {config.PUBLIC_URL}\n")
+    print(f"\n  Mihis Cut is running:  {config.PUBLIC_URL}\n")
     if not config.ACCOUNTS and (config.HTTPS or config.HOST not in ("127.0.0.1", "localhost", "::1")):
-        print("  Sign-in is off, so anyone who can reach this address can use PeakCut and its AI key.\n"
+        print("  Sign-in is off, so anyone who can reach this address can use Mihis Cut and its AI key.\n"
               "  On a server other people can reach, set PEAKCUT_ACCOUNTS=1 in .env.\n", flush=True)
     if config.env("PEAKCUT_AUTO_RELOAD") == "1":
         # restart by itself whenever the server code changes (pages in web/ never need a restart)

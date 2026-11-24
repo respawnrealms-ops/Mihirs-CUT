@@ -154,7 +154,7 @@ def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE):
     return moving
 
 
-def _local(vpeaks, hpeaks, still, light):
+def _local(vpeaks, hpeaks, still, light, share=STILL_SHARE):
     """Every rectangle the strong straight lines can make, that still looks like a camera.
 
     Returns them best first: the one whose weakest border is the strongest, and of those the bigger."""
@@ -174,12 +174,91 @@ def _local(vpeaks, hpeaks, still, light):
                     score = wscore + hy0 + [hs[v] for v in (y1,) if v in hs]
                     if len(score) < 2:
                         continue       # a box needs two borders of its own, or it is just the frame
-                    moving = _plausible(x0, y0, x1, y1, still, light, game)
+                    moving = _plausible(x0, y0, x1, y1, still, light, game, share=share)
                     if moving is None:
                         continue
                     key = (min(score), (x1 - x0) * (y1 - y0))
                     out.append({"key": key, "x": x0, "y": y0, "x1": x1, "y1": y1,
                                 "score": round(min(score), 2), "moving": moving})
+    return sorted(out, key=lambda c: c["key"], reverse=True)
+
+
+def _band_local(hpeaks, still, light):
+    """Measure short vertical borders between strong horizontal borders.
+
+    A webcam's side can disappear in a profile measured over the whole frame.
+    Looking only between its top and bottom keeps that side visible. Faces may
+    move inside the box, but its median movement must still be below the game.
+    """
+    out = []
+    for i, a in enumerate(hpeaks[:10]):
+        for b in hpeaks[i + 1:10]:
+            y0, y1 = sorted((a[0], b[0]))
+            if not MIN_SIZE * H <= y1 - y0 <= MAX_SIZE * H:
+                continue
+            profile = np.abs(np.diff(light[y0:y1], axis=1)).sum(axis=0)
+            for c in _local(_peaks(profile, 10), [a, b], still, light, share=0.55):
+                if c["y"] == y0 and c["y1"] == y1:
+                    c["motion_fraction"] = STILL_FRAC
+                    out.append(c)
+    return sorted(out, key=lambda c: c["key"], reverse=True)
+
+
+def _face_hints(path):
+    """Repeated face locations near the edges, checked locally without an AI key."""
+    try:
+        import cv2
+        model = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+        detector = cv2.FaceDetectorYN.create(str(model), "", (640, 360), 0.72, 0.3, 100)
+        cap = cv2.VideoCapture(str(path))
+        dur = _duration(path)
+        out = []
+        try:
+            for index, frac in enumerate((0.15, 0.325, 0.5, 0.675, 0.85)):
+                cap.set(cv2.CAP_PROP_POS_MSEC, frac * dur * 1000)
+                ok, image = cap.read()
+                if not ok:
+                    continue
+                ih, iw = image.shape[:2]
+                image = cv2.resize(image, (640, max(2, round(ih * 640 / iw))))
+                ih, iw = image.shape[:2]
+                detector.setInputSize((iw, ih))
+                _, faces = detector.detect(image)
+                for f in faces if faces is not None else []:
+                    x, y, w, h = (float(v) for v in f[:4])
+                    cx, cy = (x + w / 2) / iw, (y + h / 2) / ih
+                    if cx < 0.36 or cx > 0.64 or cy < 0.30 or cy > 0.70:
+                        out.append((index, (x * W / iw, y * H / ih, w * W / iw, h * H / ih), frac * dur))
+        finally:
+            cap.release()
+        return out
+    except Exception:  # the border-only search still works if local face detection is unavailable
+        return []
+
+
+def _human_local(path, vpeaks, hpeaks, still, light):
+    """Accept a moving camera only when faces repeat inside its measured borders."""
+    hints = _face_hints(path)
+    if not hints:
+        return []
+    quiet = np.zeros_like(still)
+    candidates = _local(vpeaks, hpeaks, quiet, light, share=1.0) + _band_local(hpeaks, quiet, light)
+    out, seen = [], set()
+    for c in candidates:
+        key = tuple(c[k] for k in ("x", "y", "x1", "y1"))
+        if key in seen:
+            continue
+        seen.add(key)
+        hits = []
+        area = (c["x1"] - c["x"]) * (c["y1"] - c["y"])
+        for index, (x, y, w, h), at in hints:
+            overlap = max(0, min(c["x1"], x + w) - max(c["x"], x)) * max(0, min(c["y1"], y + h) - max(c["y"], y))
+            if overlap >= 0.65 * w * h and area <= 65 * w * h:
+                hits.append((index, at))
+        if len({i for i, _ in hits}) >= 2:
+            c.update(human_verified=True, sample_time=hits[len(hits) // 2][1])
+            c["key"] = (len({i for i, _ in hits}), *c["key"])
+            out.append(c)
     return sorted(out, key=lambda c: c["key"], reverse=True)
 
 
@@ -195,14 +274,14 @@ def _overlap(a, box) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def _full_frame(path: str | Path) -> np.ndarray | None:
+def _full_frame(path: str | Path, at=None) -> np.ndarray | None:
     """One grey frame at full size, from the middle of the video: where the borders are measured."""
     w, h = _size(path)
     if not w or not h:
         return None
     try:
         raw = subprocess.run(
-            ["ffmpeg", "-v", "error", "-ss", f"{max(0.0, _duration(path) / 2.0):.1f}", "-i", str(path),
+            ["ffmpeg", "-v", "error", "-ss", f"{max(0.0, _duration(path) / 2.0 if at is None else at):.1f}", "-i", str(path),
              "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
             capture_output=True, timeout=120).stdout or b""
     except Exception:  # noqa: BLE001
@@ -219,12 +298,12 @@ def _best(profile: np.ndarray, approx: float, span: float) -> float:
     return float(lo + seg.argmax()) if len(seg) else float(approx)
 
 
-def _snap(path: str | Path, box, w: int, h: int, span: float = 0.0):
+def _snap(path: str | Path, box, w: int, h: int, span: float = 0.0, at=None):
     """A box on the small grid, put onto the borders that are really in the picture.
 
     A border the small grid found is a pixel or two out; a box a model proposed can be a good part of the
     frame out, which is what `span` is for. A side within a hair of the frame's own edge is the edge."""
-    frame = _full_frame(path)
+    frame = _full_frame(path, at=at)
     if frame is None:
         return None
     fh, fw = frame.shape
@@ -266,7 +345,7 @@ def _corner(x0, y0, x1, y1, w, h) -> str:
 
 def _finish(path: str | Path, found: dict, w: int, h: int, still: np.ndarray) -> dict | None:
     """The box in source pixels, with how sure it is that this is really a camera."""
-    snapped = _snap(path, (found["x"], found["y"], found["x1"], found["y1"]), w, h)
+    snapped = _snap(path, (found["x"], found["y"], found["x1"], found["y1"]), w, h, at=found.get("sample_time"))
     if not snapped:
         return None
     x0, y0, x1, y1 = snapped
@@ -276,7 +355,7 @@ def _finish(path: str | Path, found: dict, w: int, h: int, still: np.ndarray) ->
     game = float(np.median(still))
     moving = float(np.median(inside)) if inside.size else 99.0
     # sure of it when the picture inside hardly moves while the game around it is racing
-    conf = "high" if moving <= max(3.0, 0.25 * game) else "low"
+    conf = "high" if found.get("human_verified") or moving <= max(3.0, found.get("motion_fraction", 0.25) * game) else "low"
     return {"x": int(round(x0)), "y": int(round(y0)), "w": int(round(x1 - x0)), "h": int(round(y1 - y0)),
             "corner": _corner(x0, y0, x1, y1, w, h), "score": found.get("score", 0.0), "conf": conf}
 
@@ -326,6 +405,24 @@ def _seen(path: str | Path, box, w: int, h: int, still: np.ndarray, light: np.nd
     return _finish(path, found, w, h, still)
 
 
+def detect_span(path: str | Path, start: float, end: float, ask=None) -> dict | None:
+    """Find the camera in this clip, even when a compilation changes its overlays."""
+    import tempfile
+    if end <= start:
+        return None
+    try:
+        with tempfile.TemporaryDirectory(prefix="pc-cam-") as folder:
+            sample = Path(folder) / "sample.mkv"
+            proc = subprocess.run(
+                ["ffmpeg", "-v", "error", "-y", "-ss", str(max(0.0, start)), "-i", str(Path(path).resolve()),
+                 "-t", str(end - max(0.0, start)), "-map", "0:v:0", "-an", "-vf", "fps=4",
+                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", str(sample)],
+                capture_output=True, timeout=180)
+            return detect(sample, ask=ask) if proc.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def detect(path: str | Path, ask=None) -> dict | None:
     """The facecam's box in the source, in source pixels, or None.
 
@@ -352,6 +449,10 @@ def detect(path: str | Path, ask=None) -> dict | None:
     vx, hy = _profiles(frames)
     vpeaks, hpeaks = _peaks(vx, 40), _peaks(hy, 40)
     found = _local(vpeaks, hpeaks, still, light) if (vpeaks and hpeaks) else []
+    if not found:
+        found = _band_local(hpeaks, still, light)
+    if not found:
+        found = _human_local(path, vpeaks, hpeaks, still, light)
     if looked and hinted:
         # The model is better than any measurement at saying "that is a person", and worse at saying
         # exactly where the lines are. So it picks which of the measured boxes it is, and only if it

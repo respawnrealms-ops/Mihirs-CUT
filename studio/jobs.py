@@ -106,20 +106,26 @@ _live_q: "queue.Queue" = queue.Queue()   # live clips never wait behind a long v
 _jobs: dict = {}
 _by_user: dict = {}                       # user -> {job id: job}: listing one person's videos never scans everyone's
 _lock = threading.RLock()
+_active_compilations = set()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
             "range_start": None, "range_end": None, "captions": True, "hook_text": "", "description_text": "",
-            "lang": "en"}   # lang: the language spoken
+            "lang": "en", "studio": {}, "mode": "shorts", "long_minutes": 30}   # lang: the language spoken
 
 
-LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
+LIMITS = {"long_minutes": (20, 40),"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
 
 
 def clean_options(options) -> dict:
     """Only known settings, each inside its allowed range. Raises ValueError on nonsense."""
     out = {}
     for k, v in (options if isinstance(options, dict) else {}).items():
+        if k == "studio":
+            from . import editor, editor_assets
+            out[k] = editor.clean(v)
+            editor_assets.validate_profile(out[k])
+            continue
         if k == "captions":
             if not isinstance(v, bool):
                 raise ValueError("Captions must be on or off.")
@@ -137,6 +143,9 @@ def clean_options(options) -> dict:
             v = v if v in render.STYLES else DEFAULTS["style"]
         elif k == "layout":
             v = v if v in render.LAYOUTS else DEFAULTS["layout"]
+        elif k == "mode":
+            if v not in ("shorts", "compilation"):
+                raise ValueError("Choose Shorts or a long highlight compilation.")
         elif k == "lang":
             v = v if fetch_model.known(v) else DEFAULTS["lang"]
         else:                                    # range_start, range_end: seconds into the video
@@ -153,14 +162,14 @@ def job_dir(jid) -> Path:
     return Path(_jobs[jid]["dir"])
 
 
-HIDDEN = ("dir", "user", "source_path", "recover")
+HIDDEN = ("dir", "user", "source_path", "original_source_path", "recover")
 
 
 def public(job) -> dict:
     """What the browser may see: no server paths, no owner id."""
     out = {k: v for k, v in job.items() if k not in HIDDEN}
     out["source"] = {k: v for k, v in job["source"].items() if k != "path"}
-    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for")} for c in job["clips"]]
+    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for", "caption_words")} for c in job["clips"]]
     ai = job.get("ai") or {}
     out["ai"] = {"tokens": ai.get("tokens", 0), "note": ai.get("note", ""), "used": bool(ai.get("model"))}   # never the model, never raw errors
     if job.get("status") == "queued":
@@ -315,12 +324,14 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions", "lang") if k in c},
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions", "lang", "studio") if k in c},
                 "hook_text": creators.clean_hook(c.get("hook_text")),
                 "description_text": creators.clean_description(c.get("description_text"))}
     else:
         d, base, creator = config.user_dir(ctx.uid()) / "jobs" / jid, dict(DEFAULTS), None
     opts = {**base, **clean_options(options)}
+    if opts.get("mode") == "compilation" and kind == "video":
+        kind = "long_video"
     if opts["min_len"] >= opts["max_len"]:
         opts["min_len"] = max(5, opts["max_len"] - 5)
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
@@ -339,6 +350,21 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
 def enqueue(job):
     save(job)
     _q.put(("job", job["id"], None), user=job["user"])
+
+
+def retry_compilation(jid):
+    with _lock:
+        job=_jobs.get(jid)
+        if not job or job.get("user")!=ctx.uid():
+            raise ValueError("No such video.")
+        if job.get("kind")!="long_video" or job.get("status") not in ("error","stopped","cancelled"):
+            raise ValueError("Only a stopped or failed long compilation can be resumed.")
+        if jid in _active_compilations:
+            raise ValueError("This compilation is still stopping. Wait a moment before resuming.")
+        job.update(status="queued",stage="Resuming from saved source and transcript",error=None,cancel=False,resume=True,progress=.02)
+        save(job)
+        _q.put(("job",job["id"],None),user=job["user"])
+    return job
 
 
 def submit(fn):
@@ -371,10 +397,14 @@ def delete(jid):
     return bool(job)
 
 
-def request_render(jid, cid, changes: dict):
-    job = _jobs[jid]
-    clip = next(c for c in job["clips"] if c["id"] == cid)
+def edited_clip(clip, changes):
+    from . import editor, editor_assets
     new = dict(clip)
+    if "studio" in changes:
+        new["studio"] = editor.clean(changes["studio"])
+        editor_assets.validate_profile(new["studio"])
+    if "caption_words" in changes:
+        new["caption_words"] = editor.clean_words(changes["caption_words"], max_words=30000 if clip.get("long_video") else 2000) if changes["caption_words"] is not None else None
     if "captions" in changes:
         new.update(clean_options({"captions": changes["captions"]}))
     for k in ("start", "end"):
@@ -385,8 +415,9 @@ def request_render(jid, cid, changes: dict):
         new["end"] = min(new["end"], clip["src_end"])
     if not (math.isfinite(new["start"]) and math.isfinite(new["end"])) or new["start"] < 0:
         raise ValueError("Those times aren't valid.")
-    if not 3 <= new["end"] - new["start"] <= 180:
-        raise ValueError("A clip can be 3 to 180 seconds long.")
+    max_length = 2410 if clip.get("long_video") else 180
+    if not 3 <= new["end"] - new["start"] <= max_length:
+        raise ValueError("A long compilation can be up to 40 minutes." if clip.get("long_video") else "A clip can be 3 to 180 seconds long.")
     for k in ("hook", "title", "description", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
@@ -396,6 +427,17 @@ def request_render(jid, cid, changes: dict):
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
+    if new["start"] != clip["start"] or new["end"] != clip["end"]:
+        new.pop("facecam", None)
+    return new
+
+
+def request_render(jid, cid, changes: dict):
+    job = _jobs[jid]
+    clip = next(c for c in job["clips"] if c["id"] == cid)
+    new = edited_clip(clip, changes)
+    if "facecam" not in new:
+        clip.pop("facecam", None)
     clip.update(new, status="queued")
     save(job)
     _q.put(("clip", jid, cid))
@@ -437,7 +479,7 @@ def save_post_text(job, clip, changes: dict):
 def spoken_in(job, clip) -> str:
     """What is said during a clip, from the video's transcript."""
     try:
-        words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+        words = clip["caption_words"] if clip.get("long_video") and clip.get("caption_words") is not None else json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""
     return " ".join(str(w.get("w", "")) for w in words
@@ -462,9 +504,19 @@ def render_one(job, clip, words):
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
+        # A clip can switch to gameplay after its first render, including a saved live piece.
+        if clip.get("layout") in (*render.FACE_LAYOUTS, "pip") and not clip.get("facecam") and len((clip.get("studio") or {}).get("regions", [])) < 2:
+            box = _facecam(job, src, clip["start"] - off, clip["end"] - off)
+            if box:
+                clip["facecam"] = box
         local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
+        if (clip.get("studio") or {}).get("template", "none") != "none":
+            from . import source_profile
+            clip["studio"] = source_profile.apply(job, clip)
+            local["studio"] = clip["studio"]
         near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
-        out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
+        kwargs = {"cancel": lambda: bool(job.get("cancel"))} if clip.get("long_video") else {}
+        out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"], **kwargs)
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
         (d / "clips" / f"{clip['id']}.json").write_text(json.dumps(post, indent=1), encoding="utf-8")
@@ -484,6 +536,8 @@ def render_one(job, clip, words):
 
 
 def _caption_words(job, clip, words, off):
+    if clip.get("caption_words") is not None:
+        return [dict(w, s=w["s"]-off, e=w["e"]-off) for w in clip["caption_words"]]
     span = [round(clip["start"], 2), round(clip["end"], 2), "en2"]      # "en2": captions made always-English
     if clip.get("fixed_for") == span and clip.get("fixed_words") and not any(
             roman.needs_roman(w.get("w", "")) for w in clip["fixed_words"]):
@@ -604,18 +658,19 @@ def _covers(words: list, start: float, end: float) -> bool:
     return len(inside) >= 25 * minutes and inside[-1]["s"] >= start + 0.85 * (end - start)
 
 
-def _facecam(job) -> list | None:
+def _facecam(job, path=None, start=None, end=None) -> list | None:
     """Where the webcam is in the source: once for the whole video, for every clip of it.
 
     Only a sure answer is used. A box that is a scoreboard drawn over the game would
     put a picture of a scoreboard in the corner of the clip. One frame is also shown to
     the AI, which tells a person from a game character better than any measurement can;
     what it says is measured again on the picture, so it cannot do any harm."""
-    path = job.get("source_path")
+    path = path or job.get("source_path")
     if not path or not Path(path).is_file():
         return None
     try:
-        box = facecam.detect(path, ask=brain.look_for_facecam)
+        box = (facecam.detect_span(path, start, end, ask=brain.look_for_facecam)
+               if start is not None and end is not None else facecam.detect(path, ask=brain.look_for_facecam))
     except Exception:  # noqa: BLE001 - a missing facecam is not a failure
         return None
     if not box or box.get("conf") != "high":
@@ -625,6 +680,15 @@ def _facecam(job) -> list | None:
 
 
 def _run_job(job):
+    if job.get("kind") == "long_video":
+        from . import long_video
+        with _lock:
+            _active_compilations.add(job["id"])
+        try:
+            return long_video.run(job)
+        finally:
+            with _lock:
+                _active_compilations.discard(job["id"])
     import math
     from concurrent.futures import ThreadPoolExecutor
     d = Path(job["dir"])
@@ -644,7 +708,6 @@ def _run_job(job):
         job["game"] = game
     t0 = time.time()
     notes = []
-    face = False       # where the webcam is in the source, found once; False means not looked for yet
     usage.set_context(job["creator"], job["title"] or src.get("name"))
     resuming = bool(job.pop("resume", False)) and (d / "words.json").is_file()
     if resuming:   # after a restart: keep the transcript parts, clips and AI answers already made, and carry on
@@ -670,7 +733,8 @@ def _run_job(job):
         if meta["is_live"]:
             raise RuntimeError("This link is a live stream, so it would never finish downloading. Open the creator, "
                                "put this link under Setup, and press Start recording instead.")
-        _set(job, title=meta["title"], uploader=meta["uploader"], duration=meta["duration"])
+        _set(job, title=meta["title"], uploader=meta["uploader"], duration=meta["duration"],
+             channel_url=meta.get("channel_url", ""), channel_handle=meta.get("channel_handle", ""))
         if not job.get("thumb") and media.save_thumb(d, url=src["url"]):
             _set(job, thumb=True)
         usage.set_context(job["creator"], meta["title"])
@@ -856,7 +920,7 @@ def _run_job(job):
             found = keep
         for c in found:
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
-                     end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"],
+                     end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"], studio=json.loads(json.dumps(o.get("studio") or {})),
                      captions=o.get("captions", True), status="queued", version=0)
             if o.get("hook_text"):        # the person's own big text, on every clip, in place of the AI's
                 c["hook"] = o["hook_text"]
@@ -864,12 +928,7 @@ def _run_job(job):
                 c["description"], c["fixed_description"] = o["description_text"], True
             else:                          # no description of their own: 3 to 5 fitting hashtags go at the end of the AI's
                 hashtags.apply(c, words, job["title"], job["uploader"], game)
-            # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
-            # stream with no webcam is not looked for again on every clip of it.
-            if o["layout"] == "gameplay" and face is False:
-                face = _facecam(job)
-            if face:
-                c["facecam"] = face
+            # The render checks its own time range: compilations can change cameras between clips.
             job["clips"].append(c)
             futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
@@ -923,8 +982,13 @@ def _worker(quick_only=False):
             else:
                 clip = next(c for c in job["clips"] if c["id"] == cid)
                 words = []
-                if clip.get("captions", True):
-                    words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+                if clip.get("captions", True) and clip.get("caption_words") is None:
+                    try:
+                        words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+                    except FileNotFoundError:
+                        words = clip.get("fixed_words") or []
+                        if not words:
+                            raise RuntimeError("The transcript is no longer saved. Open Edit caption text and add or import captions, or turn captions off.") from None
                 render_one(job, clip, words)
         except Exception as e:  # noqa: BLE001
             (Path(job["dir"]) / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
@@ -934,6 +998,11 @@ def _worker(quick_only=False):
                         c.update(status="error", error="The video stopped before this clip was made.")
                 _set(job, status="error", error=safe.friendly(e), stage="Stopped")
                 creators.log(job["creator"], f"Video failed: {safe.friendly(e)[:200]}")
+            else:
+                clip = next((c for c in job["clips"] if c["id"] == cid), None)
+                if clip:
+                    clip.update(status="error", error=safe.friendly(e, 400))
+                    save(job)
         finally:
             ctx._uid.reset(token)
             if kind == "job":

@@ -30,3 +30,10 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# Local runtime and video tools
+.runtime/
+bin/
+
+# Temporary long-video encodes, automatically removed after rendering.
+.render-work/

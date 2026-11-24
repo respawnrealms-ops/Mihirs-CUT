@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import alerts, auth, brain, config, creators, ctx, facecam, games, hashtags, jobs, load, media, transcribe, usage
+from . import alerts, auth, brain, config, creators, ctx, facecam, games, hashtags, jobs, load, media, render, transcribe, usage
 
 # ":username!user@host PRIVMSG #channel :the message"
 _NICK = re.compile(r"(?m)^:([A-Za-z0-9_]{2,25})!")
@@ -633,7 +633,7 @@ class Session:
     def _add_clip(self, c):
         self.n += 1
         c.update(id=f"clip{self.n:03d}", style=self.settings["style"], layout=self.settings["layout"],
-                 captions=self.job["options"].get("captions", True), status="queued", version=0, made_at=time.time())
+                 captions=self.job["options"].get("captions", True), studio=json.loads(json.dumps(self.settings.get("studio", self.job["options"].get("studio")) or {})), status="queued", version=0, made_at=time.time())
         if self.job["options"].get("hook_text"):      # the person's own big text, in place of the AI's
             c["hook"] = self.job["options"]["hook_text"]
         if self.job["options"].get("description_text"):
@@ -689,9 +689,9 @@ class Session:
             return
         finally:
             lst.unlink(missing_ok=True)
-        # Only the gameplay layout uses a webcam, and only once the clip's own file is written: the
+        # Facecam layouts look for a webcam once the clip's own file is written: the
         # webcam is looked for in it, once per stream.
-        if clip.get("layout") == "gameplay":
+        if clip.get("layout") in render.FACE_LAYOUTS:
             if not self.facecam_checked:
                 self.facecam_box = self._find_facecam(src)
                 self.facecam_checked = True

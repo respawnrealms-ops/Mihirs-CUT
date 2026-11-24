@@ -49,6 +49,16 @@ try:
     check("a webcam in the bottom-right is found too", (box or {}).get("corner"), "bottom-right")
     check("its position is right", abs((box or {}).get("x", 0) - 980) <= 1, True)
 
+    # A compilation can put its camera in a different place for each clip.
+    compilation = os.path.join(work, "compilation.mp4")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", cam, "-i", cam_br,
+                    "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]", "-map", "[v]",
+                    "-c:v", "libx264", "-preset", "ultrafast", compilation], check=True)
+    first = facecam.detect_span(compilation, 0, 3)
+    second = facecam.detect_span(compilation, 4, 7)
+    check("the first clip uses its own camera position", (first or {}).get("corner"), "top-left")
+    check("a later clip uses its changed camera position", (second or {}).get("corner"), "bottom-right")
+
     # ---- a video with no webcam in it: nothing that stays still, so nothing is found
     plain = os.path.join(work, "plain.mp4")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", NOISE, "-frames:v", FRAMES,
@@ -101,6 +111,70 @@ try:
         check("'no cam' is read as no webcam", brain.look_for_facecam(b"jpeg"), {"looked": True, "box": None})
     with patch.object(_ai, "see", return_value=("I am a text model.", 0, 0)):
         check("an answer that is neither is not believed", brain.look_for_facecam(b"jpeg")["looked"], False)
+
+    # ---- a webcam's short side is hidden by edges elsewhere in the full frame
+    import numpy as np
+    light = np.full((facecam.H, facecam.W), 30, dtype=np.float32)
+    light[76:116, :64] = 150
+    still = np.full_like(light, 35)
+    still[76:116, :64] = 11
+    still[76:92, :64] = 15      # people move in part of the camera, while its box stays put
+    horizontal = np.ones(facecam.H - 1, dtype=np.float32)
+    horizontal[76], horizontal[116] = 3.0, 3.6
+    with (patch.object(facecam, "_frames", return_value=np.repeat(light.astype(np.uint8)[None], 8, axis=0)),
+          patch.object(facecam, "_size", return_value=(1280, 720)),
+          patch.object(facecam, "_stillness", return_value=still),
+          patch.object(facecam, "_profiles", return_value=(np.ones(facecam.W - 1), horizontal)),
+          patch.object(facecam, "_snap", return_value=(0, 306, 258, 467))):
+        found = facecam.detect("short-camera-border.ts")
+    check("a short camera border is found without an image-capable AI", (found or {}).get("conf"), "high")
+    check("the whole camera is kept when the people inside move", [(found or {}).get(k) for k in ("x", "y", "w", "h")], [0, 306, 258, 161])
+
+    # Moving faces can confirm a bordered camera that is not still enough for the old heuristic.
+    moving = np.full_like(light, 35)
+    repeated = [(0, (20, 80, 12, 16), 1.0), (1, (21, 80, 12, 16), 2.0)]
+    with patch.object(facecam, "_face_hints", return_value=repeated):
+        candidates = facecam._human_local("moving-camera", [], facecam._peaks(horizontal, 40), moving, light)
+    check("moving faces confirm the camera's measured borders", bool(candidates) and candidates[0].get("human_verified"))
+    with patch.object(facecam, "_face_hints", return_value=repeated[:1]):
+        check("one face sighting alone does not invent a camera", facecam._human_local("one-face", [], facecam._peaks(horizontal, 40), moving, light), [])
+    with patch.object(facecam, "_face_hints", return_value=[]):
+        check("a moving HUD without faces is not a camera", facecam._human_local("hud", [], facecam._peaks(horizontal, 40), moving, light), [])
+
+    # ---- changing an existing live clip's layout must detect its saved camera picture
+    from studio import ctx
+    from pathlib import Path
+    output = Path(work) / "rerender"
+    (output / "clips").mkdir(parents=True)
+    clip = {"id": "clip1", "src": cam_br, "src_offset": 0, "start": 0, "end": 3,
+            "layout": "gameplay", "captions": False, "style": "bounce", "score": 80,
+            "hook": "", "title": "", "description": "", "hashtags": [], "version": 1}
+    job = {"dir": str(output), "source_path": cam, "duration": 4, "width": 1280, "height": 720, "creator": None}
+    detected = {"x": 980, "y": 500, "w": 300, "h": 170, "conf": "high"}
+    with (ctx.as_user("u_test"), patch.object(jobs, "save"),
+          patch.object(facecam, "detect_span", return_value=detected) as find,
+          patch.object(render, "render_clip", return_value={"file": "clip1.mp4", "layout": "gameplay"}) as encode):
+        jobs.render_one(job, clip, [])
+        check("changing to gameplay checks the saved live piece", find.call_args.args[0], Path(cam_br))
+        check("the facecam reaches the rerendered video", encode.call_args.args[3].get("facecam"), [980, 500, 300, 170])
+        find.reset_mock()
+        jobs.render_one(job, clip, [])
+        check("remaking it again reuses the detected facecam", find.called, False)
+
+    # A missing camera must not rewrite the user's selected layout.
+    with patch.object(render, "_render_in", return_value={"file": "fallback.mp4", "cover": "fallback.jpg", "layout": "crop"}):
+        result = render.render_clip(Path(cam), output / "fallback", "fallback",
+                                    {"start": 0, "end": 3, "layout": "gameplay", "captions": False}, [], 1280, 720)
+    check("a missing camera keeps the selected facecam layout", result["layout"], "gameplay")
+    check("the rendered fallback is recorded separately", result["rendered_layout"], "crop")
+    check("a missing camera is explained to the user", "No facecam" in result["layout_warning"])
+    check("portrait clips also retain their camera layout", render.geometry(720, 1280, "gameplay")[0], "gameplay")
+    job.update(id="facecam-edit-test", clips=[clip])
+    clip["src_end"] = 4
+    with (ctx.as_user("u_test"), patch.dict(jobs._jobs, {job["id"]: job}),
+          patch.object(jobs, "save"), patch.object(jobs._q, "put")):
+        jobs.request_render(job["id"], clip["id"], {"end": 3.5})
+    check("trimming a clip checks for its camera again", "facecam" not in clip)
 
     # ---- the layout: the game fills the screen and the webcam sits in the corner
     f = render._filter("gameplay", 1920, [0, 0, 300, 170])

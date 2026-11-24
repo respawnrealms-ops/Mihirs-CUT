@@ -338,7 +338,7 @@ def _yt_token(acc) -> str:
     return acc["access_token"]
 
 
-def youtube_upload(acc, path: Path, title: str, description: str, tags: list, privacy: str):
+def youtube_upload(acc, path: Path, title: str, description: str, tags: list, privacy: str, *, shorts=True):
     token = _yt_token(acc)
     meta = {"snippet": {"title": re.sub(r"[<>]", "", title)[:100] or "Clip", "description": re.sub(r"[<>]", "", description)[:4900],
                         "tags": tags[:15], "categoryId": "20"},
@@ -352,7 +352,8 @@ def youtube_upload(acc, path: Path, title: str, description: str, tags: list, pr
         done = _check(httpx.put(start.headers["Location"], content=f.read(),
                                 headers={"Authorization": f"Bearer {token}", "Content-Type": "video/mp4"}, timeout=900),
                       "Uploading to YouTube").json()
-    return done["id"], f"https://www.youtube.com/shorts/{done['id']}"
+    url = f"https://www.youtube.com/shorts/{done['id']}" if shorts else f"https://www.youtube.com/watch?v={done['id']}"
+    return done["id"], url
 
 
 def youtube_views(acc, ids: list) -> dict:

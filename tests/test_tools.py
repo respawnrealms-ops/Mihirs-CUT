@@ -90,6 +90,7 @@ check("an unknown model name", ai.explain("HTTP 404 models/gemini-old is not fou
 check("a refused key", ai.explain("HTTP 400 API key not valid. Please pass a valid API key."), lambda s: "refused the key" in s)
 check("out of quota", ai.explain("HTTP 429 You exceeded your current quota"), lambda s: "limit" in s)
 check("cannot be reached", ai.explain("[Errno 11001] getaddrinfo failed"), lambda s: "couldn't reach" in s)
+check("connection warnings use the current product name", ai.explain("connection timed out"), lambda s: s.startswith("Mihis Cut ") and "PeakCut" not in s)
 check("anything else is not guessed at", ai.explain("something odd"), "")
 ai.note_problem("HTTP 404 model not found")
 check("the reason is kept for the dashboard, and cleared when the AI answers again", (bool(ai.problem["text"]), (ai.clear_problem(), ai.problem["text"])[1]), (True, ""))

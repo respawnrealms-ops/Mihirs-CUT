@@ -83,4 +83,48 @@ print("PASS a fresh app process can use the persisted account database")
     if result.returncode:
         raise AssertionError(result.stdout + result.stderr)
     print(result.stdout.strip(), flush=True)
+    code = '''
+import os
+from deploy.render_start import prepare, setup_owner
+prepare(os.environ)
+from studio import auth, db, server
+from fastapi.testclient import TestClient
+db.init()
+email="render-test@example.com"
+password="only-in-this-test-291827"
+owner={"PEAKCUT_OWNER_EMAIL":email,"PEAKCUT_OWNER_PASSWORD":password}
+user=auth.login(email,password)
+assert not user.is_admin
+try:
+    setup_owner({**owner,"PEAKCUT_OWNER_PASSWORD":"wrong-password-1234"})
+except ValueError:pass
+else:raise AssertionError("A guessed owner email gained admin access")
+assert not auth.login(email,password).is_admin
+setup_owner(owner)
+setup_owner(owner)
+assert auth.login(email,password).is_admin
+ordinary,_=auth.signup("ordinary@example.com","another-test-password","Ordinary")
+assert not ordinary.is_admin
+new_owner={"PEAKCUT_OWNER_EMAIL":"fresh-owner@example.com","PEAKCUT_OWNER_PASSWORD":"a-private-test-password"}
+setup_owner(new_owner)
+assert auth.login(new_owner["PEAKCUT_OWNER_EMAIL"],new_owner["PEAKCUT_OWNER_PASSWORD"]).is_admin
+setup_owner({})
+try:setup_owner({"PEAKCUT_OWNER_EMAIL":email})
+except ValueError:pass
+else:raise AssertionError("Incomplete owner credentials were accepted")
+c=TestClient(server.app,base_url="https://test-only.onrender.com")
+r=c.post("/api/auth/login",json={"email":email,"password":password},headers={"Origin":"https://test-only.onrender.com"})
+assert r.status_code==200,r.text
+assert c.get("/api/ai").status_code==200
+assert c.get("/api/apps").status_code==200
+ordinary_client=TestClient(server.app,base_url="https://test-only.onrender.com")
+ordinary_client.post("/api/auth/login",json={"email":"ordinary@example.com","password":"another-test-password"},headers={"Origin":"https://test-only.onrender.com"})
+assert ordinary_client.get("/api/ai").status_code==404
+assert ordinary_client.get("/api/apps").status_code==404
+print("PASS only the configured owner gains AI and app setup; wrong passwords and ordinary users stay blocked")
+'''
+    result = subprocess.run([sys.executable, "-c", code], cwd=base, env=clean_env, capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise AssertionError(result.stdout + result.stderr)
+    print(result.stdout.strip(), flush=True)
 print("Render deployment checks passed; no local user data or external services used.")

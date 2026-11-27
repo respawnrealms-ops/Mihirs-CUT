@@ -24,6 +24,23 @@ To upgrade, first select paid compute and add a disk mounted at `/data`. Ephemer
 test data is not automatically migrated onto a new disk. Then enable model downloads,
 adjust the limits, and test a real owned source before turning on live recording.
 
+### Owner account without a server shell
+
+In the service's **Environment** settings, set `PEAKCUT_OWNER_EMAIL` to the owner's
+email and `PEAKCUT_OWNER_PASSWORD` to a private password of at least eight characters.
+Enter the password directly in Render, never in Git or a Blueprint file. Save and deploy.
+
+The start script creates this account if the database is empty and makes it an admin.
+If the account exists, its existing password must match before the role is granted.
+Other signups stay Standard. Sign in as this owner to access Settings → AI and
+Settings → Connected apps → Set up. These credentials also recreate the owner after
+the free instance loses its ephemeral database; they do not restore videos or OAuth tokens.
+
+For an existing account, enter its current password. This setting does not reset
+an existing account's password. A mismatch stops startup and reports the issue without
+printing the password. On paid persistent storage you can instead use the documented
+`python -m studio.admin grant YOUR_EMAIL` command from Render Shell.
+
 ## Cost and capacity
 
 `render.yaml` selects **2 CPU / 8 GB RAM** (`2c-8g`) and a **50 GB persistent disk**.

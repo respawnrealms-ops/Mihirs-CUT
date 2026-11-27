@@ -1,0 +1,44 @@
+# Temporary FREE smoke test. No persistent disk; all saved state can disappear on restart.
+# This plan is for checking the site and small imports, not full transcription or live clipping.
+services:
+  - type: web
+    name: mihis-cut-test
+    runtime: docker
+    plan: free
+    numInstances: 1
+    autoDeployTrigger: "off"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python deploy/render_start.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: PEAKCUT_ACCOUNTS
+        value: "1"
+      - key: PEAKCUT_DATA
+        value: /data
+      - key: PEAKCUT_FETCH_MODEL
+        value: "0"
+      - key: PEAKCUT_UPDATE_CHECK
+        value: "0"
+      - key: PEAKCUT_JOB_WORKERS
+        value: "1"
+      - key: PEAKCUT_ASR_COPIES
+        value: "1"
+      - key: PEAKCUT_ASR_THREADS
+        value: "1"
+      - key: PEAKCUT_MAX_LIVE
+        value: "0"
+      - key: PEAKCUT_MAX_JOBS_PER_USER
+        value: "1"
+      - key: PEAKCUT_MAX_USER_GB
+        value: "0.25"
+      - key: PEAKCUT_MAX_UPLOAD_MB
+        value: "32"
+      - key: PEAKCUT_UPLOAD_PART_MB
+        value: "5"
+      - key: PEAKCUT_MAX_VIDEO_HOURS
+        value: "0.05"
+      - key: PEAKCUT_REPO_URL
+        value: ""
+      - key: PEAKCUT_FOLLOW_URL
+        value: ""

@@ -4,6 +4,26 @@ Use a Docker **Web Service** with one instance and a persistent disk mounted at 
 The same process serves the website and runs recording, rendering and scheduled posting.
 Do not create a second worker against the same files or enable multiple instances.
 
+## Free test before paying
+
+Use Blueprint Path **`deploy/render-free.yaml`**, not the paid root `render.yaml`.
+This creates `mihis-cut-test` on Render Free with no disk or paid database. It disables
+automatic speech-model downloads and live recording, limits file uploads to 32 MB,
+and limits normal source videos to three minutes. It is suitable for checking the
+interface, sign-in and small direct Short imports. The 512 MB memory ceiling is not
+enough for reliable full speech transcription/rendering. Do not download speech models
+or use important credentials/data for this disposable test.
+
+Free services sleep when idle. Database accounts, imported clips, AI settings and
+connected accounts are ephemeral and may disappear on restart or redeploy. Scheduled
+posting will not reliably run. Usage in this restricted test will not predict the CPU
+or RAM cost of full clipping. See the service Metrics and workspace Billing pages for
+actual measured CPU, memory and outbound traffic.
+
+To upgrade, first select paid compute and add a disk mounted at `/data`. Ephemeral
+test data is not automatically migrated onto a new disk. Then enable model downloads,
+adjust the limits, and test a real owned source before turning on live recording.
+
 ## Cost and capacity
 
 `render.yaml` selects **2 CPU / 8 GB RAM** (`2c-8g`) and a **50 GB persistent disk**.

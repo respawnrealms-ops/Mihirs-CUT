@@ -20,7 +20,7 @@ DEFAULTS = {"ratio": "9:16", "resolution": "1080", "fps": "source", "encoder": "
             "padding": 24, "radius": 0, "shadow": False, "panel_light": False, "panel_light_color": "#d9efff", "panel_light_strength": 0.65, "divider": 0, "divider_color": "#ffffff",
             "pip_shape": "rounded", "pip_corner": "bottom_right", "pip_size": 0.3, "swap": False,
             "headline": "", "hook_label": "WAIT FOR IT", "news_label": "BREAKING NEWS", "news_strap": "SPECIAL COVERAGE · DEVELOPING STORY", "news_live": False, "gradient_angle": 90,
-            "regions": [], "profile_source": "source", "name": "", "handle": "", "subline": "", "ticker": "",
+            "placements": {}, "regions": [], "profile_source": "source", "name": "", "handle": "", "subline": "", "ticker": "",
             "badge": False, "poll_a": "Option A", "poll_b": "Option B", "code_text": "", "avatar": "", "logo": "", "logo_corner": "top_right",
             "logo_size": 0.12, "logo_opacity": 1, "watermark": "", "follow": "", "outro": 0,
             "caption_y": 0, "caption_size": 1, "headline_y": 0, "music": "", "music_volume": 0.15,
@@ -69,7 +69,9 @@ def clean(value):
     for key, val in value.items():
         if key not in DEFAULTS:
             continue
-        if key in ENUMS:
+        if key == "placements":
+            val = clean_placements(val)
+        elif key in ENUMS:
             if val not in ENUMS[key]:
                 raise ValueError(f"Choose a supported {key.replace('_', ' ')}.")
         elif key in NUMBERS:
@@ -87,6 +89,28 @@ def clean(value):
             val = text(val, 500 if key == "subline" else 200)
         if val != DEFAULTS[key]:
             out[key] = val
+    return out
+
+
+PLACED_ELEMENTS = {"video0", "video1", "video2", "profile", "headline", "caption", "subline",
+                   "news", "hook_label", "news_strap", "ticker", "watermark", "logo"}
+
+
+def clean_placements(value):
+    if not isinstance(value, dict) or len(value) > len(PLACED_ELEMENTS):
+        raise ValueError("Canvas positions must be an object of supported elements.")
+    out = {}
+    for key, row in value.items():
+        if key not in PLACED_ELEMENTS or not isinstance(row, dict):
+            raise ValueError("Choose a supported canvas element.")
+        r = {k: number(row.get(k), 0, 1) for k in ("x", "y", "w", "h")}
+        if r["w"] < .02 or r["h"] < .02 or r["x"] + r["w"] > 1.0001 or r["y"] + r["h"] > 1.0001:
+            raise ValueError("Keep each canvas element inside the picture, with a width and height of at least 2%.")
+        if "enabled" in row:
+            if not isinstance(row["enabled"], bool) or (key.startswith("video") and not row["enabled"]):
+                raise ValueError("Video panels must stay visible. Other elements can be hidden.")
+            r["enabled"] = row["enabled"]
+        out[key] = r
     return out
 
 
@@ -131,7 +155,7 @@ def settings(clip):
 
 
 def catalog():
-    return {"version": 2, "brand": "Mihis Cut", "ratios": list(RATIOS), "motions": MOTIONS,
+    return {"version": 3, "brand": "Mihis Cut", "ratios": list(RATIOS), "motions": MOTIONS,
             "templates": TEMPLATES, "defaults": DEFAULTS, "layouts": LAYOUTS}
 
 

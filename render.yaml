@@ -1,0 +1,43 @@
+# One always-on app process: HTTP, live recording, rendering and posting share /data.
+# This is a PAID deployment. Review Render's cost estimate before applying it.
+services:
+  - type: web
+    name: mihis-cut
+    runtime: docker
+    plan: 2c-8g
+    numInstances: 1
+    autoDeployTrigger: "off"
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python deploy/render_start.py
+    healthCheckPath: /healthz
+    disk:
+      name: mihis-cut-data
+      mountPath: /data
+      sizeGB: 50
+    envVars:
+      - key: PEAKCUT_ACCOUNTS
+        value: "1"
+      - key: PEAKCUT_DATA
+        value: /data
+      - key: PEAKCUT_JOB_WORKERS
+        value: "1"
+      - key: PEAKCUT_ASR_COPIES
+        value: "1"
+      - key: PEAKCUT_ASR_THREADS
+        value: "2"
+      - key: PEAKCUT_MAX_LIVE
+        value: "1"
+      - key: PEAKCUT_MAX_LIVE_PER_USER
+        value: "1"
+      - key: PEAKCUT_MAX_JOBS_PER_USER
+        value: "2"
+      - key: PEAKCUT_MAX_USER_GB
+        value: "35"
+      - key: PEAKCUT_MAX_VIDEO_HOURS
+        value: "4"
+      - key: PEAKCUT_MAX_LIVE_HOURS
+        value: "6"
+      - key: PEAKCUT_REPO_URL
+        value: ""
+      - key: PEAKCUT_FOLLOW_URL
+        value: ""

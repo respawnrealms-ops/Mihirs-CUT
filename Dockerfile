@@ -12,6 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY studio studio
 COPY web web
+COPY deploy/render_start.py deploy/render_start.py
 
 ENV PEAKCUT_DATA=/data \
     PEAKCUT_HOST=0.0.0.0 \
@@ -20,6 +21,6 @@ ENV PEAKCUT_DATA=/data \
     PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8765
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=4)"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s CMD python -c "import os, urllib.request; port=os.environ.get('PORT') or os.environ.get('PEAKCUT_PORT','8765'); urllib.request.urlopen('http://127.0.0.1:'+port+'/healthz', timeout=4)"
 # the first start downloads the speech model into /data/models by itself (about 480 MB)
 CMD ["python", "-m", "studio.server"]

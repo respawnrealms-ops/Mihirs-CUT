@@ -46,3 +46,21 @@ In Mihis Studio → Frame → Background & spacing, enable **3D light border**. 
 ## Resuming a long compilation
 
 If a long compilation stops, use **Resume compilation** on its error card. It reuses the downloaded source and saved transcript. Highlight scores are now saved as each batch finishes. Missing scores are retried one section at a time; completed scores are kept if the AI remains unavailable. Resuming uses only scores that match the current source sections. The app does not invent scores for missing answers. Only the owner can resume a job, and an active or still-stopping compilation cannot be queued twice. Review the finished video before posting.
+# Instant preview and manual canvas editing
+
+## Repost an existing YouTube Short
+
+In the Make menu, choose **Repost a Short — upload directly**. Paste one Short link, select your connected YouTube channel and Public, Unlisted or Private, then click **Upload Short**. The app imports the whole video and queues it for the selected channel. It keeps the downloaded picture, audio and existing captions, without transcription, highlight detection, extra captions or a template render. No AI key is needed.
+
+Leave the title blank to keep the source title. Leave the description and hashtag fields blank for a source-title description, original link and relevant hashtags including `#Shorts`; type your own values to override them. **Save to library only** imports without posting. Videos must be square or vertical and no longer than three minutes. Use content you own or have permission to publish.
+
+The upload respects Pause all posting and the connected account's YouTube restrictions. Repeated requests and page reloads do not create a second upload for the same source/channel. Download failures have **Retry Short import**. An uncertain upload failure waits for you to check YouTube and retry it from the post queue, rather than automatically risking a duplicate.
+
+
+Open **Options** beside Make clips. Caption and layout choices update the preview immediately. The same choices are available in quick selectors beside the preview, with the full layout gallery on Frame and the caption gallery on Captions.
+
+Click a video panel, profile, headline, caption or added text/image to select it. Drag to move it, drag the orange corner to resize, or enter Left, Top, Width and Height percentages. Arrow keys make small moves; Shift plus an arrow makes a larger move. Reset position restores that element's template position. Show this element can hide non-video elements. Positions are saved in Setup, browser drafts and clip edits and applied by the video renderer.
+
+Use **Add your own text** or upload an image in **Media & audio**, then add it from the preview's image selector. Selected text can be edited or removed in the inspector. **Crop the original source manually** lets you draw a source crop for each shot, including a facecam region, before making a clip.
+
+Links show an arrangement preview using their thumbnail. Uploaded files and saved source videos can play locally. Sample subtitle words are for preview only; use the finished clip's timed-word editor and Render preview to check the actual transcript, timing and automatic facecam detection. Previewing starts no video download, AI call, render or post. Make clips submits the saved editing choices when you are ready.

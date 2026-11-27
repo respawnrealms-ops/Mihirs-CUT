@@ -614,7 +614,7 @@ def status(request: Request):
     me_ = _me(request)
     return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
-            "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
+            "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "repost_shorts": True, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
             "styles": {k: v["label"] for k, v in render.STYLES.items()}, "style_previews": render.style_previews(),
             "layouts": render.LAYOUTS, "studio": editor.catalog(), "brand": "Mihis Cut", "speech": _speech_brief()}
 
@@ -770,6 +770,58 @@ def link_preview(request: Request, url: str = ""):
         raise
     except Exception:
         raise HTTPException(422, "Couldn't open that video. Check the link is public and complete.")
+
+
+@app.post("/api/repost-shorts")
+def create_repost_short(body: dict = Body(...)):
+    from . import repost
+    _need_verified()
+    _throttle("repost:" + ctx.uid(), 30, 600)
+    try:
+        intent = repost.clean(body)
+        creator = str(body.get("creator") or "") or None
+        if creator and not creators.get(creator):
+            raise HTTPException(404, "No such creator")
+        with _create_lock:
+            existing = next((j for j in jobs.list_jobs() if j.get("kind") == "repost"
+                             and j.get("repost", {}).get("request_id") == intent["request_id"]), None)
+            if existing:
+                if existing["repost"] != intent:
+                    raise HTTPException(409, "Upload settings changed. Start a new Short upload.")
+                return jobs.public(existing)
+            if intent["publish"]:
+                prior = next((j for j in jobs.list_jobs() if j.get("kind") == "repost"
+                              and j.get("repost", {}).get("publish")
+                              and j["repost"].get("url") == intent["url"]
+                              and j["repost"].get("account") == intent["account"]
+                              and (j["status"] in ("queued", "running") or j.get("repost_post_ids")
+                                   or any(c.get("posts") for c in j.get("clips", [])))), None)
+                if prior:
+                    raise HTTPException(409, "This Short is already queued or uploaded to that channel. Open it in All videos or the post queue.")
+            _quota()
+            _job_slots()
+            media.check_youtube(intent["url"])
+            job = jobs.create({"type":"url", "url":intent["url"], "name":intent["title"] or intent["url"]},
+                              {"captions":False, "studio":{}, "layout":"fit"}, enqueue=False, creator=creator, kind="repost")
+            job["repost"] = intent
+            jobs.enqueue(job)
+        return jobs.public(job)
+    except media.YouTubeBlocked as e:
+        raise HTTPException(503, str(e))
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e) if isinstance(e, ValueError) else "Those upload settings are not valid.")
+
+
+@app.post("/api/jobs/{jid}/repost/retry")
+def retry_repost_short(jid: str):
+    from . import repost
+    job = _job_or_404(jid)
+    _throttle("retry-repost:" + ctx.uid(), 10, 600)
+    try:
+        repost.retry(job)
+        return jobs.public(job)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 @app.post("/api/jobs")
@@ -1041,6 +1093,8 @@ def _clip_or_404(jid: str, cid: str):
 
 @app.get("/editor.js")
 @app.get("/editor.css")
+@app.get("/live-editor.js")
+@app.get("/live-editor.css")
 def editor_static(request: Request):
     return FileResponse(WEB / request.url.path.lstrip("/"), headers={"Cache-Control": "no-cache"})
 
@@ -1786,7 +1840,10 @@ def add_posts(body: dict = Body(...)):
     clip = next((c for c in job["clips"] if c["id"] == body.get("clip")), None) if job else None
     if not clip or clip.get("status") != "done":
         raise HTTPException(404, "That clip is not ready")
-    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    try:
+        made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not made:
         raise HTTPException(400, "Nothing was queued. Pick at least one account this clip has not already gone to.")
     return {"queued": len(made)}

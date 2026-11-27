@@ -65,10 +65,10 @@ def _next_slot(account_id, gap_min, cap):
 
 
 def enqueue(job, clip, account_ids, now=False) -> list:
-    if job.get("kind") == "long_video":
+    if job.get("kind") in ("long_video", "repost"):
         chosen = [accounts.get(aid) for aid in account_ids]
         if any(a and a["platform"] != "youtube" for a in chosen):
-            raise ValueError("Choose a YouTube account for a long compilation. Shorts posting is unchanged.")
+            raise ValueError("Choose a YouTube account for this video.")
     c = creators.get(job["creator"]) or creators.DEFAULTS
     made = []
     with _lock:
@@ -77,7 +77,7 @@ def enqueue(job, clip, account_ids, now=False) -> list:
             if not acc:
                 continue
             if any(p["job"] == job["id"] and p["clip"] == clip["id"] and p["account"] == aid
-                   and p["status"] in OPEN + ("posted",) for p in _mine()):
+                   and (p["status"] in OPEN + ("posted",) or job.get("kind") == "repost") for p in _mine()):
                 continue  # never post the same clip to the same account twice
             due = time.time() if now else _next_slot(aid, c["post_gap_min"], c["daily_cap"])
             p = {"id": secrets.token_hex(8), "user": ctx.uid(), "job": job["id"], "clip": clip["id"], "creator": job["creator"],
@@ -94,8 +94,8 @@ def enqueue(job, clip, account_ids, now=False) -> list:
 
 def on_clip_ready(job, clip):
     """Called once when a clip first finishes rendering."""
-    if job.get("kind") == "long_video":
-        return  # Long compilations always wait for a person to review and post them.
+    if job.get("kind") in ("long_video", "repost"):
+        return  # Compilations wait for review; imported Shorts use their explicit upload target.
     c = creators.get(job["creator"])
     if not c or not c["autopost"] or not c["accounts"]:
         return
@@ -128,6 +128,8 @@ def _post(p):
         if acc["platform"] == "youtube":
             if job.get("kind") == "long_video":
                 rid, url = accounts.youtube_upload(acc, path, title, cap, clip.get("hashtags", []), creator["privacy"], shorts=False)
+            elif job.get("kind") == "repost":
+                rid, url = accounts.youtube_upload(acc, path, title, cap, clip.get("hashtags", []), job["repost"]["privacy"])
             else:
                 rid, url = accounts.youtube_upload(acc, path, title, cap + "\n\n#Shorts", clip.get("hashtags", []), creator["privacy"])
         elif acc["platform"] == "instagram":
@@ -141,7 +143,11 @@ def _post(p):
     except Exception as e:  # noqa: BLE001
         p["tries"] += 1
         p["error"] = str(e)[-300:]
-        if p["tries"] < 3 and clip and acc:
+        if job and job.get("kind") == "repost":
+            p["status"] = "failed"
+            p["error"] = p["error"][:200] + " Check your YouTube channel before retrying; the upload may have reached YouTube."
+            creators.log(p["creator"], f"Short upload needs review on {p['account_name']}: {p['error']}")
+        elif p["tries"] < 3 and clip and acc:
             p.update(status="scheduled", due_at=time.time() + 600)  # try again in 10 minutes
         else:
             p["status"] = "failed"

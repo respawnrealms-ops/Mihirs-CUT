@@ -680,6 +680,9 @@ def _facecam(job, path=None, start=None, end=None) -> list | None:
 
 
 def _run_job(job):
+    if job.get("kind") == "repost":
+        from . import repost
+        return repost.run(job)
     if job.get("kind") == "long_video":
         from . import long_video
         with _lock:

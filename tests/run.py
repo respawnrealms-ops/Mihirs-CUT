@@ -47,6 +47,7 @@ def main() -> int:
             return 1
         runs = [("permissions", ["tests/test_permissions.py", BASE, str(ROOT), sys.executable]),
                 ("abuse and limits", ["tests/test_abuse.py", BASE, str(ROOT)]),
+                ("Render deployment settings and persistent sign-in", ["tests/test_render_deploy.py"]),
                 ("queue under load", ["tests/test_load_queue.py", str(ROOT)]),
                 ("a day-long video in little memory", ["tests/test_longvideo.py"]),
                 ("deleting and bulk actions", ["tests/test_delete.py"]),
@@ -64,7 +65,9 @@ def main() -> int:
                 ("reference frames and separate long compilations", ["tests/test_reference_frames.py"]),
                 ("editable captions and source channel credit", ["tests/test_caption_source.py"]),
                 ("raised video panels and light borders", ["tests/test_panel_depth.py"]),
+                ("manual canvas placements and exported positions", ["tests/test_canvas_positions.py"]),
                 ("incomplete AI scores and saved compilation retries", ["tests/test_compilation_retry.py"]),
+                ("direct Short imports, metadata and duplicate-safe publishing", ["tests/test_repost.py"]),
                 ("connecting YouTube, Instagram and TikTok", ["tests/test_connect.py"]),
                 ("the new-version notice", ["tests/test_updates.py"]),
                 ("no limits by default", ["tests/test_limits.py"]),

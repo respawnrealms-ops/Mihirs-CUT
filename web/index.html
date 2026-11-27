@@ -846,9 +846,12 @@ dialog[open]{animation:fadein .16s ease}
   .set-sec h2{font-size:16px}
   .ai-big{font-size:24px}
 }
+.repost-options{padding:0 14px 14px;display:grid;gap:12px}.repost-options[hidden]{display:none}.repost-options .help{margin:0}.composer.is-repost [data-act=pickfile],.composer.is-repost [data-act=toggleopts],.composer.is-repost .hint,.composer.is-repost .addrow{display:none}.composer.is-repost #goBtn{margin-left:auto}
 </style>
-<link rel="stylesheet" href="/editor.css">
-<script src="/editor.js"></script>
+<link rel="stylesheet" href="/editor.css?v=3">
+<link rel="stylesheet" href="/live-editor.css?v=2">
+<script src="/live-editor.js?v=2"></script>
+<script src="/editor.js?v=3"></script>
 </head>
 <body>
 <div class="app" id="app">
@@ -1395,16 +1398,28 @@ function setTab(t) {
 /* ============================================================ add bar */
 function drawAdd(variant) {
   const c = creator();
-  $("#add").innerHTML = `<form class="composer ${variant === "hero" ? "big" : "compact"}" id="addform">
+  $("#add").innerHTML = `<form class="composer ${variant === "hero" ? "big" : "compact"}" id="addform" novalidate>
     <div class="composer-input">${ic("link")}<input id="url" placeholder="Paste a YouTube, Twitch or Kick video link" autocomplete="off" aria-label="Video link"></div>
     <div class="att" id="att"><div><div class="att-in" id="attIn"></div></div></div>
-    <div class="mc-long-options"><label>Make<select id="o_mode"><option value="shorts">Shorts — existing workflow</option><option value="compilation">Long YouTube highlight compilation</option></select></label><label id="long-length" hidden>Target length<select id="o_long_minutes"><option value="20">20 minutes</option><option value="30" selected>30 minutes</option><option value="40">40 minutes</option></select></label><span id="long-help" class="sub" hidden>For each source, AI selects highlights and joins them in order. Use a source longer than the target. Review before posting.</span></div>
+    <div class="mc-long-options"><label>Make<select id="o_mode"><option value="shorts">Shorts — existing workflow</option><option value="compilation">Long YouTube highlight compilation</option><option value="repost">Repost a Short — upload directly</option></select></label><label id="long-length" hidden>Target length<select id="o_long_minutes"><option value="20">20 minutes</option><option value="30" selected>30 minutes</option><option value="40">40 minutes</option></select></label><span id="long-help" class="sub" hidden>For each source, AI selects highlights and joins them in order. Use a source longer than the target. Review before posting.</span></div>
+    <div class="repost-options" id="repost-options" hidden>
+      <p class="help">Keeps the whole Short, including its existing picture, audio and captions. No AI key or speech model needed. Use a video you own or have permission to publish.</p>
+      <div class="two">
+        <label class="f">Action<select id="r_action"><option value="publish">Upload now to YouTube</option><option value="save">Save to library only</option></select></label>
+        <label class="f">Your YouTube channel<select id="r_account"><option value="">Choose your channel</option>${S.accounts.filter(a=>a.platform==='youtube').map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select></label>
+        <label class="f">Title<input id="r_title" maxlength="100" placeholder="Keep the original Short’s title"></label>
+        <label class="f">Upload privacy<select id="r_privacy">${opts({public:'Public',unlisted:'Unlisted',private:'Private'},c?.privacy||'public')}</select></label>
+      </div>
+      <label class="f">Description<textarea id="r_description" rows="2" maxlength="4400" placeholder="Automatic: source title, original link and hashtags"></textarea></label>
+      <label class="f">Hashtags<input id="r_hashtags" maxlength="300" placeholder="Automatic relevant hashtags + #Shorts, or type your own"></label>
+      <p class="sub">Square or vertical YouTube videos up to 3 minutes. Upload uses your connected account and respects Pause all posting.</p>
+    </div>
     <div class="composer-bar">
       <button type="button" class="chip" data-act="pickfile">${ic("up")}Upload video</button>
       ${c ? "" : picker("o_creator", "File under creator", [{v:"", label:"No creator", icon:"user"}, ...S.creators.map(x => ({v:x.id, label:x.name, img:x.profile?.pic && x.profile.channel === x.channel ? avatarUrl(x) : ""}))], "")}
       <button type="button" class="chip" data-act="toggleopts" aria-expanded="false">${ic("sliders")}Options</button>
       <span class="grow"></span><span class="hint">or drop a video file here</span>
-      <button class="btn primary" id="goBtn">${ic("scissors")}Make clips</button>
+      <button type="submit" class="btn primary" id="goBtn">${ic("scissors")}Make clips</button>
     </div>
     <div class="composer-opts" inert><div class="og">
       ${langSeg(c?.lang || "en")}
@@ -1515,7 +1530,10 @@ document.addEventListener("click", e => {
   if (!e.target.closest(".pick") || e.target.closest(".pick-new")) closePicks();
   const sg = e.target.closest("[data-seg]");
   if (sg && !sg.disabled) { $("#" + sg.dataset.seg).value = sg.dataset.v;
-    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg))); return; }
+    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg)));
+    const input = $("#" + sg.dataset.seg);
+    input.dispatchEvent(new Event("input", {bubbles:true}));
+    input.dispatchEvent(new Event("change", {bubbles:true})); return; }
   const st = e.target.closest("[data-step]");
   if (st) { const i = $("#" + st.dataset.step), s = Number(i.step) || 1, d = Number(st.dataset.d);
     const v = Math.min(Number(i.max), Math.max(Number(i.min), (Number(i.value) || 0) + d * s)); i.value = v; }
@@ -1530,6 +1548,40 @@ document.addEventListener("keydown", e => {
   os[(i + (e.key === "ArrowDown" ? 1 : -1) + os.length) % os.length].focus();
 });
 const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
+function syncRepostMode() {
+  const form=$("#addform");if(!form)return;
+  const enabled=$("#o_mode").value==="repost";
+  form.classList.toggle("is-repost",enabled);
+  $("#repost-options").hidden=!enabled;
+  if(enabled){const panel=$(".composer-opts",form);panel.classList.remove("open");panel.inert=true;const button=$('[data-act="toggleopts"]',form);button.classList.remove("on");button.setAttribute("aria-expanded","false");}
+  const save=$("#r_action").value==="save";
+  $("#r_account").disabled=save;$("#r_privacy").disabled=save;
+  drawAtt();
+}
+async function repostShort() {
+  const A=att();
+  if(A.busy)return;
+  const typed=$("#url").value.trim();
+  if(typed&&looksLink(typed)&&!isChannel(typed)){clearTimeout(linkTimer);takeLink(A,typed,$("#url"));}
+  if(A.links.some(l=>l.state==="wait")){A.queued=true;drawAtt();toast("Checking the Short first…");return;}
+  const ready=A.links.filter(l=>l.state==="ok");
+  if(A.files.length||ready.length!==1||A.links.length!==1)return toast("Paste one YouTube Short link at a time. Remove other links or files first.","bad");
+  if(!S.status.repost_shorts)return toast("Restart Mihis Cut to load the Short upload update.","bad");
+  const link=ready[0],publish=$("#r_action").value==="publish",account=$("#r_account").value;
+  if(publish&&!account)return toast("Choose your connected YouTube channel first. Connect it in Settings if it is missing.","bad");
+  const body={url:link.url,account,publish,privacy:$("#r_privacy").value,title:$("#r_title").value.trim(),description:$("#r_description").value.trim(),hashtags:$("#r_hashtags").value.trim(),creator:targetCreator()};
+  const signature=JSON.stringify(body);
+  if(link.repostSignature!==signature){link.repostSignature=signature;link.repostRequest=window.crypto?.randomUUID?.()||('repost-'+newId()+'-'+Date.now().toString(36));}
+  body.request_id=link.repostRequest;
+  A.busy=true;drawAtt();
+  try{
+    await send("/api/repost-shorts",body);
+    A.links=A.links.filter(l=>l!==link);A.queued=false;
+    toast(publish?"Downloading the whole Short, then uploading it to your selected channel with hashtags.":"Downloading the whole Short into your library.","ok");
+    if(S.view==="overview")go(targetCreator()?"c:"+targetCreator():"library");else tick();
+  }catch(e){toast(e.message,"bad");}
+  finally{A.busy=false;drawAtt();}
+}
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
   const o = {mode:$("#o_mode")?.value || "shorts",long_minutes:Number($("#o_long_minutes")?.value || 30),max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality"),
@@ -1578,6 +1630,7 @@ function rowHtml(A, {id, kind, thumb, len, title, sub, side, bar}) {
     ${bar != null ? `<i class="pbar" style="width:${bar}%"></i>` : ""}</div>`;
 }
 function drawAtt() {
+  queueMicrotask(() => window.dispatchEvent(new Event("mihis:sourcechange")));
   const box = $("#attIn"); if (!box) return;
   const A = att();
   let h = A.note ? `<div class="lp bad">${ic("warn")}<span>${esc(A.note)}</span></div>` : "";
@@ -1609,7 +1662,7 @@ function drawAtt() {
   const b = $("#goBtn");
   if (b) { b.disabled = A.busy;
     const k = A.files.length + A.links.filter(l => l.state === "ok").length;
-    b.innerHTML = A.busy ? `${ic("up")}Sending…` : A.queued ? `${ic("clock")}Finding video…` : `${ic("scissors")}${$("#o_mode")?.value === "compilation" ? "Make compilation" : "Make clips"}${k > 1 ? ` (${k})` : ""}`; }
+    b.innerHTML = A.busy ? `${ic("up")}Sending…` : A.queued ? `${ic("clock")}Finding video…` : `${ic("scissors")}${$("#o_mode")?.value === "repost" ? ($("#r_action")?.value === "save" ? "Import Short" : "Upload Short") : $("#o_mode")?.value === "compilation" ? "Make compilation" : "Make clips"}${k > 1 ? ` (${k})` : ""}`; }
 }
 
 async function lookUp(u) {
@@ -1730,6 +1783,7 @@ function langNote(A, lang) {
     <button type="button" class="btn sm ghost" data-act="langno">Cancel</button></span></span></div>`);
 }
 async function makeClips() {
+  if($("#o_mode")?.value==="repost")return repostShort();
   const A = att();
   if (A.busy) return;
   const typed = $("#url")?.value.trim();
@@ -1749,7 +1803,10 @@ async function makeClips() {
   $("#langnote")?.remove();
   A.busy = true; drawAtt();
   let started = 0, failed = 0;
-  const who = targetCreator(), opts = jobOptions();
+  const who = targetCreator();
+  let opts;
+  try { opts = jobOptions(); } catch (e) { A.busy = false; drawAtt(); toast(e.message, "bad"); return; }
+  try {
   for (const l of A.links.filter(x => x.state === "ok")) {
     l.sending = true; drawAtt();
     try { await send("/api/jobs", {url: l.url, options: opts, creator: who}); l.state = "done"; started++; }
@@ -1764,7 +1821,8 @@ async function makeClips() {
   }
   A.links = A.links.filter(l => l.state !== "done");
   A.files = A.files.filter(f => { if (f.state === "done") { URL.revokeObjectURL(f.src); return false; } return true; });
-  A.busy = false; drawAtt();
+  } catch (e) { failed++; toast(e.message || "Could not start the clip. Try again.", "bad"); }
+  finally { A.busy = false; drawAtt(); }
   if (started) {
     toast(`${started === 1 ? "Your video is" : started + " videos are"} ${opts.mode === "compilation" ? "being assembled into a long compilation" : "being clipped"} now.`, "ok");
     if (!failed && S.view === "overview") go(who ? "c:" + who : "library"); else tick();
@@ -1788,7 +1846,7 @@ function clipHtml(j, c) {
   const key = `c:${j.id}:${c.id}`, busyClip = c.status === "queued" || c.status === "rendering";
   return `<article class="clip ${sel().has(key) ? "picked" : ""}">
     <button class="shot" style="${c.long_video ? "aspect-ratio:16/9" : ""}" data-act="openclip" ${a} aria-label="Open clip: ${esc(c.title || c.hook)}">${body}
-      <span class="badge l ${scoreCls(c.score)}" title="AI score">${c.long_video ? "Compilation" : c.score || "Hand"}</span><span class="badge r">${fmt(c.output_duration || c.end - c.start)}</span></button>
+      <span class="badge l ${scoreCls(c.score)}" title="AI score">${c.repost ? "Imported" : c.long_video ? "Compilation" : c.score || "Hand"}</span><span class="badge r">${fmt(c.output_duration || c.end - c.start)}</span></button>
     <div class="clip-body">
       <div class="hook">${esc(c.hook || (c.long_video ? "Highlight compilation" : "Untitled clip"))}</div>
       <div class="ttl">${esc(c.title)}</div>
@@ -1845,7 +1903,7 @@ function jobHtml(j) {
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
     ${busy ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><p class="sub">${esc(j.stage)} · ${Math.round(j.progress * 100)}%</p>` : ""}
     ${j.status === "done" && !j.clips.length ? `<p class="sub">${esc(j.stage)}</p>` : ""}
-    ${j.error ? `<div class="err">${esc(j.error)} ${j.kind === "long_video" && ["error","stopped","cancelled"].includes(j.status) ? `<button class="btn sm" data-act="retrycompilation" data-j="${j.id}">Resume compilation</button>` : ""}<button class="rep" data-act="report" data-ctx="${esc("Video failed: " + (j.title || j.source.name || "") + " | " + j.error)}">Report this</button></div>` : ""}${j.ai?.note ? `<p class="sub">${esc(j.ai.note)}</p>` : ""}
+    ${j.error ? `<div class="err">${esc(j.error)} ${j.kind === "repost" && j.status === "error" ? `<button class="btn sm" data-act="retryrepost" data-j="${j.id}">Retry Short import</button>` : ""}${j.kind === "long_video" && ["error","stopped","cancelled"].includes(j.status) ? `<button class="btn sm" data-act="retrycompilation" data-j="${j.id}">Resume compilation</button>` : ""}<button class="rep" data-act="report" data-ctx="${esc("Video failed: " + (j.title || j.source.name || "") + " | " + j.error)}">Report this</button></div>` : ""}${j.ai?.note ? `<p class="sub">${esc(j.ai.note)}</p>` : ""}
     ${j.clips.length ? `<div class="grid">${j.clips.map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
 }
 /* ---- selecting several videos and clips: delete or download them together */
@@ -2273,10 +2331,11 @@ function drawClipDlg(full) {
   const stage = c.status === "done" ? `<video src="${m}${esc(c.file)}?v=${c.version}" poster="${m}${esc(c.cover)}?v=${c.version}" controls autoplay playsinline></video>`
     : c.status === "error" ? `<div class="err" style="padding:20px;text-align:center">${esc(c.error || "Could not make this clip.")}</div>`
     : `<span class="making">${c.status === "rendering" ? "Making this clip…" : "Waiting its turn…"}</span>`;
+  const postAccounts=S.accounts.filter(a=>j.kind!=="repost"||a.platform==="youtube");
   if (full) {
     dlg.innerHTML = `<div class="editor"><div class="stage" id="stage">${stage}</div>
       <div class="panel">
-        <div class="job-head" style="margin:0"><div><span class="badge ${scoreCls(c.score)}" style="position:static">${c.judges ? "Words " + c.judges.words + (c.judges.reaction ? " · Reaction " + c.judges.reaction : "") : c.score ? "Score " + c.score : "Clipped by hand"}</span>
+        <div class="job-head" style="margin:0"><div><span class="badge ${scoreCls(c.score)}" style="position:static">${c.repost ? "Imported Short" : c.judges ? "Words " + c.judges.words + (c.judges.reaction ? " · Reaction " + c.judges.reaction : "") : c.score ? "Score " + c.score : "Clipped by hand"}</span>
           <p class="sub" style="margin-top:8px">${esc(c.reason || "")}</p></div><button class="btn icon ghost" data-act="closedlg" aria-label="Close">${ic("x")}</button></div>
         <p class="help" id="layout-note" role="status" ${c.layout_warning ? "" : "hidden"}>${esc(c.layout_warning || "")}</p>
         <h3>On the video</h3>
@@ -2296,7 +2355,7 @@ function drawClipDlg(full) {
         <button class="btn" data-act="remake">${ic("scissors")}Save and re-make clip</button>
         <h3>Post it</h3>
         <div id="dposts" class="row" style="gap:4px"></div>
-        ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
+        ${postAccounts.length ? `<div class="row">${postAccounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
           <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}Post now</button><button class="btn" data-act="postqueue">Add to queue</button></div>`
           : `<p class="help">No accounts connected yet. Connect one in Settings.</p>`}
         <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
@@ -2384,7 +2443,11 @@ document.addEventListener("change", async e => {
     const sample = t.closest(".f")?.querySelector("[data-style-preview]");
     if (sample) sample.outerHTML = captionSample(t.value, t.disabled);
   }
+  if(t.id==="r_action")return syncRepostMode();
   if (t.id === "o_mode") {
+    att().queued=false;
+    syncRepostMode();
+    if(t.value==="repost")return;
     const long = t.value === "compilation";
     if (long && (S.status.studio?.version || 1) < 2) { t.value="shorts"; toast("Restart Mihis Cut to load the long-video update.", "bad"); return; }
     $("#long-length").hidden = !long; $("#long-help").hidden = !long; const shortOptions=$("#o_max")?.closest(".ob"); if(shortOptions)shortOptions.hidden=long;
@@ -2650,6 +2713,7 @@ document.addEventListener("click", async e => {
       await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSettings();
     }
     if (a === "stopcompilation") { await send(`/api/jobs/${d.j}/compilation/stop`, {}); return tick(); }
+    if(a === "retryrepost"){b.disabled=true;try{await send(`/api/jobs/${d.j}/repost/retry`,{});toast("Retrying the saved Short import…","ok");return tick();}finally{b.disabled=false;}}
     if (a === "retrycompilation") { b.disabled = true; try { await send(`/api/jobs/${d.j}/retry`, {}); toast("Resuming from the saved source and transcript…", "ok"); return tick(); } finally { b.disabled = false; } }
     if (a === "remake") {
       const body = {}; $$("#clipdlg [data-f]").forEach(i => {
@@ -2683,9 +2747,15 @@ document.addEventListener("click", async e => {
 $("#collapseBtn").innerHTML = ic("sidebar"); $("#menuBtn").innerHTML = ic("menu");
 try { if (localStorage.getItem("mini")) $("#app").classList.add("mini"); } catch {}
 $("#main").addEventListener("scroll", () => $(".topbar").classList.toggle("stuck", $("#main").scrollTop > 4), {passive:true});
-window.MihisBridge = () => ({status:S.status, creator:creator(), target:S.creators.find(c=>c.id===targetCreator()),
+function composerPreviewSource() {
+  const a=att(), file=a.files.find(f=>f.state!=="error"), link=a.links.find(l=>l.state==="ok");
+  if(file) return {key:file.id,url:file.src,seek:0,title:file.file.name,uploader:"",kind:"upload"};
+  if(link) return {key:link.id,url:"",seek:0,title:link.info.title,uploader:link.info.uploader,thumb:link.info.thumb,kind:"thumbnail"};
+  return null;
+}
+window.MihisBridge = () => ({status:S.status, capPreview:capPrev, composerSource:composerPreviewSource(), creator:creator(), target:S.creators.find(c=>c.id===targetCreator()),
   sourceJob:(()=>{const j=D.jid ? jobOf(D.jid) : S.jobs.find(j=>(!creatorId()||j.creator===creatorId())&&j.clips?.some(c=>c.status==='done'));return j ? {id:j.id,uploader:j.uploader||'',profile:j.source_profile||null} : null;})(),
-  previewSource:(()=>{const j=D.jid ? jobOf(D.jid) : S.jobs.find(j=>(!creatorId()||j.creator===creatorId())&&j.clips?.some(c=>c.status==='done')); const c=D.jid ? j?.clips.find(c=>c.id===D.cid) : j?.clips.find(c=>c.status==='done');return c&&j ? {url:`/api/jobs/${j.id}/clips/${c.id}/source`,seek:Math.max(0,c.start-(c.src_offset||0)),hook:c.hook||'',title:c.title||'',thumb:j.thumb?`/media/${j.id}/thumb.jpg`:''} : null;})(),
+  previewSource:(()=>{const j=D.jid ? jobOf(D.jid) : S.jobs.find(j=>(!creatorId()||j.creator===creatorId())&&j.clips?.some(c=>c.status==='done')); const c=D.jid ? j?.clips.find(c=>c.id===D.cid) : j?.clips.find(c=>c.status==='done');return c&&j ? {url:`/api/jobs/${j.id}/clips/${c.id}/source`,seek:Math.max(0,c.start-(c.src_offset||0)),hook:c.hook||'',title:c.title||'',thumb:j.thumb?`/media/${j.id}/thumb.jpg`:'',facecam:c.facecam,width:j.width,height:j.height} : null;})(),
   clip:D.jid ? jobOf(D.jid)?.clips.find(c => c.id === D.cid) : null, jid:D.jid, dirty:()=>dirty(true)});
 (async () => {
   try { S.status = await api("/api/status"); } catch {}

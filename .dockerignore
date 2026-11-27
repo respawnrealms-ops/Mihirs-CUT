@@ -7,3 +7,12 @@ tests
 **/__pycache__
 *.bat
 *.md
+.venv
+venv
+.runtime
+bin
+.render-work
+storage.json
+**/*.db
+**/*.sqlite*
+**/*.log

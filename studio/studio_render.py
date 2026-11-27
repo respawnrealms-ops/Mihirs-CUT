@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from . import config, editor, editor_assets, render, frame_designs, panel_depth
+from . import config, editor, editor_assets, render, frame_designs, panel_depth, canvas_layout
 from .media import NO_WINDOW, run
 
 
@@ -52,6 +52,10 @@ def draw_text(draw, text, box, size, fill, align="left", max_lines=4):
 
 
 def panel_boxes(o, layout, w, h):
+    return canvas_layout.panels(_panel_boxes(o, layout, w, h), o, w, h)
+
+
+def _panel_boxes(o, layout, w, h):
     p = round(o["padding"] * w / 1080)
     if o["template"] != "none":
         if o["template"] in frame_designs.DESIGNS:
@@ -59,7 +63,7 @@ def panel_boxes(o, layout, w, h):
         else:
             x,y,iw,ih = p+int(w*.04), int(h*.34), w-2*p-int(w*.08), int(h*.31)
         if layout in ("duo", "split", "trio", "pip", "gameplay", "facecam_top", "split_top", "split_bottom"):
-            return [(x+bx,y+by,bw,bh) for bx,by,bw,bh in panel_boxes(dict(o,template="none",padding=0),layout,iw,ih)]
+            return [(x+bx,y+by,bw,bh) for bx,by,bw,bh in _panel_boxes(dict(o,template="none",padding=0),layout,iw,ih)]
         return [(x,y,iw,ih)]
     if layout in ("duo", "split", "facecam_top", "split_top", "split_bottom"):
         half = (h-3*p)//2
@@ -110,13 +114,13 @@ def backdrop(o, w, h):
 def frame(o, clip, boxes, w, h, light):
     if o["template"] in frame_designs.DESIGNS:
         return frame_designs.overlay(o,clip,boxes,w,h,light)
-    im = Image.new("RGBA", (w,h))
-    d = ImageDraw.Draw(im)
+    layers = canvas_layout.Layers(o,w,h)
+    im,d = layers.start("decoration")
     ink = "#151515" if light else "#ffffff"
     accent = o["color2"]
     p, size = int(w*.07), w*.049
     tpl = o["template"]
-    title = clip.get("hook") or clip.get("title") or ""
+    title = o["headline"] or clip.get("hook") or clip.get("title") or ""
     if tpl in ("headline", "gaming", "announcement"):
         d.rectangle((p,int(h*.045),w-p,int(h*.053)),fill=accent)
     if tpl == "quote":
@@ -130,6 +134,7 @@ def frame(o, clip, boxes, w, h, light):
     if tpl == "spotlight":
         d.ellipse((int(w*.2),int(h*.04),int(w*.8),int(h*.32)),outline=accent,width=max(2,int(w*.003)))
     if tpl in ("x_light", "x_dark", "comment", "poll", "review"):
+        im,d = layers.start("profile", (p,h*.1,w-2*p,h*.1))
         r = int(w*.045)
         d.ellipse((p, int(h*.1), p+2*r, int(h*.1)+2*r), fill=accent)
         if o["avatar"]:
@@ -143,39 +148,53 @@ def frame(o, clip, boxes, w, h, light):
         draw_text(d, o["handle"], (p+2*r+20, int(h*.14), w-p*2-2*r-20, h*.05), size*.6, "#808080", max_lines=1)
         if o["badge"]:
             d.ellipse((w-p-24,int(h*.1),w-p,int(h*.1)+24), fill="#2288ee")
+        im,d = layers.start("headline", (p,int(h*.22),w-2*p,int(h*.105)))
         draw_text(d, title, (p,int(h*.22),w-2*p,int(h*.105)),size,ink,max_lines=3)
     elif tpl == "breaking_news":
+        im,d = layers.start("news", (p,h*.07,w-2*p,h*.05))
         d.rounded_rectangle((p,int(h*.07),w-p,int(h*.12)),radius=8,fill="#d9232e")
         draw_text(d, "NEWS", (p+16,int(h*.075),w-2*p-32,int(h*.06)), size*.7,"white",max_lines=1)
+        im,d = layers.start("headline", (p,int(h*.15),w-2*p,int(h*.15)))
         draw_text(d, title,(p,int(h*.15),w-2*p,int(h*.15)),size,ink,max_lines=4)
         if o["ticker"]:
+            im,d = layers.start("ticker", (p,h*.94,w-2*p,h*.04))
             d.rectangle((p,int(h*.94),w-p,int(h*.98)),fill="#d9232e")
             draw_text(d,o["ticker"],(p+12,int(h*.945),w-2*p-24,h*.04),size*.55,"white",max_lines=1)
     elif tpl != "none":
+        im,d = layers.start("hook_label", (p,h*.075,w-2*p,h*.045))
         tag = {"tiktok_hook":"WATCH THIS", "podcast":"ON THE MIC", "gaming":"GAMEPLAY", "code":"NOTES", "announcement":"ANNOUNCEMENT"}.get(tpl,"")
         if tag:
             d.rounded_rectangle((p,int(h*.075),w-p,int(h*.12)),radius=8,fill=accent)
             draw_text(d,tag,(p+14,int(h*.079),w-p*2-28,int(h*.05)),size*.65,"#111111",max_lines=1)
+        im,d = layers.start("headline", (p,int(h*.16),w-2*p,int(h*.16)))
         draw_text(d,title,(p,int(h*.16),w-2*p,int(h*.16)),size*1.12,ink,max_lines=4)
+        im,d = layers.start("profile", (p,h*.3,w-2*p,h*.035))
         draw_text(d,o["handle"],(p,int(h*.3),w-2*p,h*.035),size*.55,"#888888",max_lines=1)
     else:
         ypos = int((o["headline_y"] or (.12 if boxes[0][1] else .14))*h)
+        im,d = layers.start("headline", (p,ypos,w-2*p,h*.15))
         draw_text(d,title,(p,ypos,w-2*p,h*.15),size*1.1,ink,"center",3)
     if o["subline"]:
+        im,d = layers.start("subline", (p,h*.68,w-2*p,h*.12))
         draw_text(d,o["subline"],(p,int(h*.68),w-2*p,h*.12),size*.85,ink,"center",3)
     if tpl == "poll":
+        im,d = layers.start("decoration")
         for i, label in enumerate([o["poll_a"], o["poll_b"]]):
             yy = int(h*(.85+i*.045))
             d.rounded_rectangle((p,yy,w-p,yy+int(h*.035)),radius=12,outline=accent,width=3)
             draw_text(d,label,(p+12,yy,w-2*p-24,h*.04),size*.55,ink,max_lines=1)
     if tpl == "review":
+        im,d = layers.start("decoration")
         draw_text(d,"★ ★ ★ ★ ★",(p,h*.89,w-2*p,h*.06),size*.8,accent,"center",1)
     if tpl == "code" and o["code_text"]:
+        im,d = layers.start("decoration")
         d.rounded_rectangle((p,int(h*.84),w-p,int(h*.94)),radius=10,fill="#202b37")
         draw_text(d,o["code_text"],(p+12,h*.85,w-2*p-24,h*.08),size*.55,"#9aefc0",max_lines=3)
     if o["watermark"]:
+        im,d = layers.start("watermark", (p,h*.955,w-2*p,h*.04))
         draw_text(d,o["watermark"],(p,h*.955,w-2*p,h*.04),size*.45,ink,max_lines=1)
     if o["logo"]:
+        im,d = layers.start("logo")
         with Image.open(editor_assets.path(o["logo"], ("image",))) as logo:
             pic=logo.convert("RGBA")
         side=int(w*o["logo_size"])
@@ -183,11 +202,16 @@ def frame(o, clip, boxes, w, h, light):
         pic.putalpha(pic.getchannel("A").point(lambda a: round(a*o["logo_opacity"])))
         x = p if o["logo_corner"].endswith("left") else w-p-pic.width
         y = p if o["logo_corner"].startswith("top") else h-p-pic.height
+        layers.bounds("logo", (x,y,pic.width,pic.height))
         im.alpha_composite(pic,(x,y))
-    return im
+    return layers.finish()
 
 
 def ass_words(words, clip, o, w, h, light):
+    return canvas_layout.captions(_ass_words, words, clip, o, w, h, light)
+
+
+def _ass_words(words, clip, o, w, h, light):
     st = dict(render.STYLES.get(clip.get("style"), render.STYLES["bounce"]))
     if o["template"] in frame_designs.DESIGNS and clip.get("style", "clean") == "clean":
         st.update(size=100, outline=0, pop=100, per=5)

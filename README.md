@@ -30,6 +30,9 @@ creator's live stream and clip the highlights while the stream is still running.
 
 ## Quick start
 
+For an always-on hosted installation with a generated HTTPS address, see
+[Deploy on Render](deploy/RENDER.md). The supplied Blueprint uses paid compute and persistent storage.
+
 You need Python 3.10 or newer and `ffmpeg`. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
 On Linux: `sudo apt install ffmpeg`. Mihis Cut finds it by itself and tells you in the dashboard if it is missing.
 
